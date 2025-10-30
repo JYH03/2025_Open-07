@@ -7,13 +7,14 @@
   가격과 구매 가능여부를 직관적으로 보여주어 사용자 경험을 개선하고, 쇼핑 시 실질적인 도움을 주는 것을 목표로 합니다.
 
 # Project Preview
-  ![검색창](./images/AI_Clothing.png)
   ![의류정보](./images/search.png)
+  ![검색창](./images/AI_Clothing.png)
   위 이미지는 웹페이지의 메인 화면 예시입니다.  
 
 # Project Schedule
 
 | 기간 | 내용 |
+|------|------|
 | 10월 31일 | 프로젝트 주제 선정 및 GitHub README 파일 작성|
 | 11월 1일 ~ 11월 11일 | UI 디자인 및 기본 기능 구현 |
 | 11월 12일 ~ 11월 25일 | UI 피드백 및 의류 정보 API연동 |
