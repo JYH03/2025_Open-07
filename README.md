@@ -34,8 +34,7 @@
 
   **Frontend**
     - HTML, CSS, JavaScript
-    - React.js (컴포넌트 기반 UI)
-    -  Chart.js (가격 변화 시각화)
+
   **API**
     - 의류 사이트 및 쇼핑몰 사이트 API
   
