@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Outfit Viewer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js"></script>
+</head>
+
+<body>
+    <header>
+        <div class="banner">
+            <a rel="home" class="logo-link" href="index.html">
+                <h2 class="logo">Smart Outfit Viewer</h2>
+            </a>
+        </div>
+    </header>
+
+    <div class="content">
+        <h2>*전달받은 상품 링크 확인</h2>
+
+        <p>전달된 링크(테스트용):</p>
+        <div id="url_display"></div>
+
+        <hr>
+
+        <h3>상품 정보 (구현 예정)</h3>
+        <div class="product-detail">
+
+            <div class="product-info-grid">
+                <div class="product-media">
+                    <div id="main-iamge" class="main-image-placeholder">
+                        [여기에 상품 사진이 표시됩니다]
+                    </div>
+                    <div class="color-options">
+                        <button class="color-swatch active" style="background-color: gray;" title="Gray"></button>
+                        <button class="color-swatch" style="background-color: navy;" title="Navy"></button>
+                        <button class="color-swatch" style="background-color: beige;" title="Beige"></button>
+                    </div>
+                </div>
+
+                <div class="product-details">
+                    <h2 id="product-title" class="product-title">Gray Crewneck</h2>
+                    <p id="product-price" class="product-price"><strong>&#8361;59,000</strong></p>
+
+                    <div class="size-selection">
+                        <h3>Size</h3>
+                        <div class="size-options">
+                            <button class="size-btn">S</button>
+                            <button class="size-btn" disabled>M</button>
+                            <button class="size-btn">L</button>
+                            <button class="size-btn">XL</button>
+                        </div>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="buy-button">Goto Site</button>
+
+                        <button class="notify-button">Notify Me When Available</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const productUrl = urlParams.get('url');
+
+        const displayElement = document.getElementById('url_display');
+
+        if (productUrl) {
+            displayElement.textContent = productUrl;
+        } else {
+            displayElement.textContent = "상품을 찾을 수 없습니다. 올바른 링크를 입력해주세요.";
+        }
+    </script>
+
+</body>
+
+</html>
