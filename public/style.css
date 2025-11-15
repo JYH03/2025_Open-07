@@ -6,7 +6,10 @@ body {
     color: #343a40;
 }
 
-h1, h2, h3, p {
+h1,
+h2,
+h3,
+p {
     margin-top: 0;
 }
 
@@ -17,7 +20,7 @@ header {
     padding: 10px 20px;
     background-color: #ffffff;
     border-bottom: 1px solid #e9ecef;
-    position: sticky; 
+    position: sticky;
     top: 0;
     z-index: 100;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
@@ -105,7 +108,7 @@ hr {
 
 .product-info-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr; 
+    grid-template-columns: 1fr 1fr;
     gap: 50px;
     margin-top: 30px;
 }
@@ -118,7 +121,7 @@ hr {
 
 .main-image-placeholder {
     width: 100%;
-    padding-top: 100%; 
+    padding-top: 100%;
     background-color: #f7f7f7;
     border-radius: 8px;
     display: flex;
@@ -155,7 +158,7 @@ hr {
 }
 
 .color-swatch.active {
-    border-color: #007bff; 
+    border-color: #007bff;
     border-width: 3px;
     box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.3);
 }
@@ -212,7 +215,8 @@ hr {
     margin-top: 20px;
 }
 
-.buy-button, .notify-button {
+.buy-button,
+.notify-button {
     width: 80%;
     padding: 15px;
     font-size: 18px;
@@ -228,7 +232,7 @@ hr {
 }
 
 .buy-button {
-    background-color: #2a5de7; 
+    background-color: #2a5de7;
     color: white;
 }
 
@@ -237,10 +241,47 @@ hr {
 }
 
 .notify-button {
-    background-color: #2a5de7; 
+    background-color: #2a5de7;
     color: #ffffff;
 }
 
 .notify-button:hover {
     background-color: #1f44ac;
+}
+
+.search-container {
+    position: relative;
+    /* 부모 요소에 relative 필요 */
+}
+
+.tag-suggestions {
+    position: absolute;
+    top: 100%;
+    /* 입력창 바로 아래 */
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    margin-top: 4px;
+    /* 입력창과 약간 간격 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tag-suggestion {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    background: white;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.tag-suggestion:hover {
+    background: #f0f0f0;
 }
