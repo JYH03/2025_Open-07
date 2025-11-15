@@ -5,7 +5,7 @@ const elements = {
     suggestions: document.getElementById('tag-suggestions')
 };
 
-// 카테고리 설정 추후 추가 예정
+// 카테고리 설정
 const CATEGORIES = {
     gender: ["men", "women", "unisex"],
     color: ["white", "black", "gray", "navy", "beige"],
@@ -13,7 +13,7 @@ const CATEGORIES = {
     bottom: ["pants", "jeans", "shorts", "skirt"],
     outer: ["coat", "jacket", "blazer", "cardigan"]
 };
-//중복되면 안되는 태그
+
 const EXCLUSIVE_CATEGORIES = ["top", "bottom", "outer"];
 
 // 모든 태그를 @ 접두사와 함께 생성
@@ -127,6 +127,7 @@ function showSuggestions(tags) {
  */
 function createSuggestionButton(tag) {
     const button = document.createElement("button");
+    button.type = "button"; // 폼 제출 방지
     button.textContent = tag;
     button.className = "tag-suggestion";
     button.addEventListener("click", () => insertTag(tag));
