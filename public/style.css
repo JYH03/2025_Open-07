@@ -1,0 +1,246 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    color: #343a40;
+}
+
+h1, h2, h3, p {
+    margin-top: 0;
+}
+
+header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e9ecef;
+    position: sticky; 
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.logo-link {
+    text-decoration: none;
+}
+
+.logo {
+    font-size: 24px;
+    font-weight: bold;
+    color: #007bff;
+    margin: 0;
+}
+
+.search-container {
+    max-width: 800px;
+    margin: 100px auto 0;
+    padding: 0 20px;
+    text-align: center;
+}
+
+.search-container h1 {
+    margin-bottom: 30px;
+    font-size: 2em;
+}
+
+.search-container form {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+}
+
+.search-container input.search {
+    flex-grow: 1;
+    padding: 15px;
+    font-size: 16px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    max-width: 650px;
+    box-sizing: border-box;
+}
+
+.search-container button[type="submit"] {
+    padding: 15px 25px;
+    font-size: 16px;
+    font-weight: bold;
+    color: white;
+    background-color: #007bff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background-color 0.3s;
+}
+
+.search-container button[type="submit"]:hover {
+    background-color: #0056b3;
+}
+
+.content {
+    max-width: 1200px;
+    margin: 30px auto;
+    padding: 0 20px;
+}
+
+#url_display {
+    word-break: break-all;
+    background-color: #e9ecef;
+    padding: 10px 15px;
+    border-radius: 5px;
+    font-size: 14px;
+    color: #495057;
+    margin-top: 5px;
+}
+
+hr {
+    border: 0;
+    height: 1px;
+    background-color: #dee2e6;
+    margin: 25px 0;
+}
+
+.product-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; 
+    gap: 50px;
+    margin-top: 30px;
+}
+
+@media (max-width: 768px) {
+    .product-info-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.main-image-placeholder {
+    width: 100%;
+    padding-top: 100%; 
+    background-color: #f7f7f7;
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #adb5bd;
+    font-size: 16px;
+    font-weight: bold;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.main-image-placeholder::before {
+    content: '[여기에 상품 사진이 표시됩니다]';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.color-options {
+    display: flex;
+    gap: 10px;
+    margin: 15px 0 30px 0;
+}
+
+.color-swatch {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid darkgray;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.color-swatch.active {
+    border-color: #007bff; 
+    border-width: 3px;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.3);
+}
+
+.product-title {
+    font-size: 2em;
+    margin-bottom: 5px;
+}
+
+.product-price strong {
+    font-size: 1.5em;
+    color: #000000;
+}
+
+.size-selection h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+.size-options {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 30px;
+}
+
+.size-btn {
+    padding: 8px 15px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.size-btn:hover:not(:disabled) {
+    background-color: #f0f0f0;
+}
+
+.size-btn:disabled {
+    background-color: #f8f9fa;
+    color: #adb5bd;
+    cursor: not-allowed;
+}
+
+.action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.buy-button, .notify-button {
+    width: 80%;
+    padding: 15px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.buy-button {
+    background-color: #2a5de7; 
+    color: white;
+}
+
+.buy-button:hover {
+    background-color: #1f44ac;
+}
+
+.notify-button {
+    background-color: #2a5de7; 
+    color: #ffffff;
+}
+
+.notify-button:hover {
+    background-color: #1f44ac;
+}
