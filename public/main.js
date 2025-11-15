@@ -97,10 +97,47 @@ function getLastWord(value) {
 }
 
 /**
- * 키워드로 시작하는 태그 필터링
+ * 키워드로 시작하는 태그 필터링 (중복 카테고리 제외)
  */
 function filterTagsByKeyword(keyword) {
-    return ALL_TAGS.filter(tag => tag.toLowerCase().startsWith(keyword));
+    const currentTags = getCurrentTags();
+    const hasExclusiveTag = currentTags.some(tag => {
+        const category = findCategoryForTag(tag);
+        return EXCLUSIVE_CATEGORIES.includes(category);
+    });
+
+    return ALL_TAGS.filter(tag => {
+        // 키워드 매칭
+        if (!tag.toLowerCase().startsWith(keyword)) {
+            return false;
+        }
+
+        const tagWithoutAt = tag.replace("@", "").toLowerCase();
+        const categoryName = findCategoryForTag(tagWithoutAt);
+
+        if (!categoryName) return true;
+
+        // 배타적 카테고리 중 하나라도 선택되었으면 모든 배타적 카테고리 태그 제외
+        if (EXCLUSIVE_CATEGORIES.includes(categoryName) && hasExclusiveTag) {
+            return false;
+        }
+
+        return true;
+    });
+}
+
+/**
+ * 현재 입력창의 태그 목록 추출
+ */
+function getCurrentTags() {
+    return elements.input.value
+        .trim()
+        .split(/\s+/)
+        .map(word => word.replace("@", "").toLowerCase())
+        .filter(word => {
+            // 유효한 태그만 필터링
+            return Object.values(CATEGORIES).flat().includes(word);
+        });
 }
 
 /**
