@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Outfit Viewer</title>
     <link rel="stylesheet" href="style.css">
-    <script src="script.js"></script>
 </head>
 
 <body>
@@ -20,64 +19,127 @@
 
     <div class="content">
         <h2>*전달받은 상품 링크 확인</h2>
-
         <p>전달된 링크(테스트용):</p>
         <div id="url_display"></div>
 
         <hr>
 
-        <h3>상품 정보 (구현 예정)</h3>
+        <h3>상품 정보</h3>
+
         <div class="product-detail">
 
             <div class="product-info-grid">
+
+                <!-- 이미지 -->
                 <div class="product-media">
-                    <div id="main-iamge" class="main-image-placeholder">
+                    <div id="main-image" class="main-image-placeholder">
                         [여기에 상품 사진이 표시됩니다]
-                    </div>
-                    <div class="color-options">
-                        <button class="color-swatch active" style="background-color: gray;" title="Gray"></button>
-                        <button class="color-swatch" style="background-color: navy;" title="Navy"></button>
-                        <button class="color-swatch" style="background-color: beige;" title="Beige"></button>
                     </div>
                 </div>
 
+                <!-- 상품 텍스트 정보 -->
                 <div class="product-details">
-                    <h2 id="product-title" class="product-title">Gray Crewneck</h2>
-                    <p id="product-price" class="product-price"><strong>&#8361;59,000</strong></p>
+                    <h2 id="product-title" class="product-title">상품 이름</h2>
+
+                    <!-- 가격 -->
+                    <p id="product-price" class="product-price">
+                        <strong></strong>
+                    </p>
 
                     <div class="size-selection">
                         <h3>Size</h3>
-                        <div class="size-options">
-                            <button class="size-btn">S</button>
-                            <button class="size-btn" disabled>M</button>
-                            <button class="size-btn">L</button>
-                            <button class="size-btn">XL</button>
-                        </div>
+                        <div class="size-options"></div>
                     </div>
 
                     <div class="action-buttons">
                         <button class="buy-button">Goto Site</button>
-
                         <button class="notify-button">Notify Me When Available</button>
                     </div>
+
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ================= JavaScript ================= -->
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const productUrl = urlParams.get('url');
 
-        const displayElement = document.getElementById('url_display');
+        document.getElementById('url_display').textContent =
+            productUrl ? productUrl : "상품을 찾을 수 없습니다.";
 
-        if (productUrl) {
-            displayElement.textContent = productUrl;
-        } else {
-            displayElement.textContent = "상품을 찾을 수 없습니다. 올바른 링크를 입력해주세요.";
+        console.log("productUrl =", productUrl);
+
+        const titleEl = document.getElementById("product-title");
+        const priceEl = document.getElementById("product-price");
+        const mainImageEl = document.getElementById("main-image");
+        const sizeContainer = document.querySelector(".size-options");
+        const buyButton = document.querySelector(".buy-button");
+
+        // API 호출
+        if (productUrl && productUrl.includes("musinsa.com")) {
+            fetch(`/api/musinsa?url=${encodeURIComponent(productUrl)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        priceEl.innerHTML = "<strong>가격 정보를 불러오지 못했습니다</strong>";
+                        sizeContainer.innerHTML = "<p>사이즈 정보 없음</p>";
+                        return;
+                    }
+
+                    // 제목
+                    titleEl.textContent = data.title || "상품명 없음";
+
+                    // 가격
+                    if (!data.price_final) {
+                        priceEl.innerHTML = "<strong>가격 정보 없음</strong>";
+                    } else {
+                        let html = `<strong class="main-price">${data.price_final}</strong>`;
+
+                        if (data.price_original) {
+                            const orig = parseInt(data.price_original.replace(/[^0-9]/g, ""));
+                            const sale = parseInt(data.price_final.replace(/[^0-9]/g, ""));
+                            if (!isNaN(orig) && !isNaN(sale) && orig > sale) {
+                                const percent = Math.round(((orig - sale) / orig) * 100);
+                                html += ` <span class="original-price">${data.price_original}</span>`;
+                                html += ` <span class="discount">(-${percent}%)</span>`;
+                            }
+                        }
+
+                        priceEl.innerHTML = html;
+                    }
+
+                    // 이미지
+                    if (data.image) {
+                        mainImageEl.style.backgroundImage = `url('${data.image}')`;
+                        mainImageEl.style.backgroundSize = "cover";
+                        mainImageEl.style.backgroundPosition = "center";
+                    }
+
+                    // 사이즈
+                    if (Array.isArray(data.sizes) && data.sizes.length > 0) {
+                        sizeContainer.innerHTML = "";
+                        data.sizes.forEach(size => {
+                            const btn = document.createElement("button");
+                            btn.className = "size-btn";
+                            btn.textContent = size;
+                            sizeContainer.appendChild(btn);
+                        });
+                    } else {
+                        sizeContainer.innerHTML = "<p>옵션 없음</p>";
+                    }
+
+                    // Goto Site
+                    buyButton.addEventListener("click", () => {
+                        window.open(data.sourceUrl, "_blank");
+                    });
+                })
+                .catch(err => {
+                    console.error("API 오류:", err);
+                });
         }
     </script>
-
 </body>
 
 </html>
