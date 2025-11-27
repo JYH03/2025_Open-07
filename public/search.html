@@ -1,145 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Outfit Viewer</title>
+    <title>Smart Outfit Viewer - 비교함</title>
+
     <link rel="stylesheet" href="style.css">
+
+    <script src="search.js" defer></script>
 </head>
 
 <body>
-    <header>
-        <div class="banner">
-            <a rel="home" class="logo-link" href="index.html">
-                <h2 class="logo">Smart Outfit Viewer</h2>
-            </a>
-        </div>
-    </header>
 
-    <div class="content">
-        <h2>*전달받은 상품 링크 확인</h2>
-        <p>전달된 링크(테스트용):</p>
-        <div id="url_display"></div>
+    <div class="add-container">
+        <a href="index.html">
+            <h2>🛍️ Smart Outfit Viewer</h2>
+        </a>
 
-        <hr>
+        <input type="text" id="url-input" class="url-input" autocomplete="off"
+            placeholder="무신사 또는 네이버 상품 URL을 여기에 붙여넣으세요">
 
-        <h3>상품 정보</h3>
+        <button id="add-btn" class="add-btn">추가하기</button>
 
-        <div class="product-detail">
-
-            <div class="product-info-grid">
-
-                <!-- 이미지 -->
-                <div class="product-media">
-                    <div id="main-image" class="main-image-placeholder">
-                        [여기에 상품 사진이 표시됩니다]
-                    </div>
-                </div>
-
-                <!-- 상품 텍스트 정보 -->
-                <div class="product-details">
-                    <h2 id="product-title" class="product-title">상품 이름</h2>
-
-                    <!-- 가격 -->
-                    <p id="product-price" class="product-price">
-                        <strong></strong>
-                    </p>
-
-                    <div class="size-selection">
-                        <h3>Size</h3>
-                        <div class="size-options"></div>
-                    </div>
-
-                    <div class="action-buttons">
-                        <button class="buy-button">Goto Site</button>
-                        <button class="notify-button">Notify Me When Available</button>
-                    </div>
-
-                </div>
-            </div>
+        <div id="loading" class="loading-msg">
+            <div class="loading-spinner" style="display: block;"></div>
+            상품 정보를 분석하고 있습니다...
         </div>
     </div>
 
-    <!-- ================= JavaScript ================= -->
-    <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const productUrl = urlParams.get('url');
+    <div id="grid-container" class="comparison-grid">
+        <div id="empty-state" class="empty-state">
+            <p>비교할 상품이 없습니다.</p>
+            <small>위 입력창에 URL을 넣고 추가해보세요!</small>
+        </div>
+    </div>
 
-        document.getElementById('url_display').textContent =
-            productUrl ? productUrl : "상품을 찾을 수 없습니다.";
-
-        console.log("productUrl =", productUrl);
-
-        const titleEl = document.getElementById("product-title");
-        const priceEl = document.getElementById("product-price");
-        const mainImageEl = document.getElementById("main-image");
-        const sizeContainer = document.querySelector(".size-options");
-        const buyButton = document.querySelector(".buy-button");
-
-        // API 호출
-        if (productUrl && productUrl.includes("musinsa.com")) {
-            fetch(`/api/musinsa?url=${encodeURIComponent(productUrl)}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        priceEl.innerHTML = "<strong>가격 정보를 불러오지 못했습니다</strong>";
-                        sizeContainer.innerHTML = "<p>사이즈 정보 없음</p>";
-                        return;
-                    }
-
-                    // 제목
-                    titleEl.textContent = data.title || "상품명 없음";
-
-                    // 가격
-                    if (!data.price_final) {
-                        priceEl.innerHTML = "<strong>가격 정보 없음</strong>";
-                    } else {
-                        let html = `<strong class="main-price">${data.price_final}</strong>`;
-
-                        if (data.price_original) {
-                            const orig = parseInt(data.price_original.replace(/[^0-9]/g, ""));
-                            const sale = parseInt(data.price_final.replace(/[^0-9]/g, ""));
-                            if (!isNaN(orig) && !isNaN(sale) && orig > sale) {
-                                const percent = Math.round(((orig - sale) / orig) * 100);
-                                html += ` <span class="original-price">${data.price_original}</span>`;
-                                html += ` <span class="discount">(-${percent}%)</span>`;
-                            }
-                        }
-
-                        priceEl.innerHTML = html;
-                    }
-
-                    // 이미지
-                    if (data.image) {
-                        mainImageEl.style.backgroundImage = `url('${data.image}')`;
-                        mainImageEl.style.backgroundSize = "cover";
-                        mainImageEl.style.backgroundPosition = "center";
-                    }
-
-                    // 사이즈
-                    if (Array.isArray(data.sizes) && data.sizes.length > 0) {
-                        sizeContainer.innerHTML = "";
-                        data.sizes.forEach(size => {
-                            const btn = document.createElement("button");
-                            btn.className = "size-btn";
-                            btn.textContent = size;
-                            sizeContainer.appendChild(btn);
-                        });
-                    } else {
-                        sizeContainer.innerHTML = "<p>옵션 없음</p>";
-                    }
-
-                    // Goto Site
-                    buyButton.addEventListener("click", () => {
-                        window.open(data.sourceUrl, "_blank");
-                    });
-                })
-                .catch(err => {
-                    console.error("API 오류:", err);
-                });
-        }
-    </script>
 </body>
 
 </html>

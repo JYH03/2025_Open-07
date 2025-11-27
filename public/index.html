@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 
 <head>
     <meta charset="utf-8">
@@ -10,22 +10,29 @@
 </head>
 
 <body>
-    <header>
-        <div class="banner">
-            <a rel="home" class="logo-link" href="index.html">
-                <h2 class="logo">Smart Outfit Viewer</h2>
-            </a>
-        </div>
-    </header>
-
     <div class="search-container">
+        <a href="index.html" class="logo-link">
+            <h1 class="logo">Smart Outfit Viewer</h1>
+        </a>
+
         <form id="search-form" action="search.html" method="get">
-            <div id="tag-suggestions" class="tag-suggestions" style="display: none;"></div>
-            <input type="text" class="search" id="search-input" name="url" placeholder="상품 페이지(링크)를 여기에 붙여넣으세요"
-                required>
+
+            <select id="search-mode" name="mode" class="search-mode-select">
+                <option value="url">링크</option>
+                <option value="keyword">키워드</option>
+            </select>
+
+            <div style="position: relative; flex-grow: 1;">
+                <input type="search" class="search" id="search-input" name="url" placeholder="상품 페이지(링크)를 여기에 붙여넣으세요"
+                    autocomplete="off" required>
+
+                <div id="tag-suggestions" class="tag-suggestions" style="display: none;"></div>
+            </div>
+
             <button type="submit">조회</button>
         </form>
     </div>
+
 </body>
 
 </html>
