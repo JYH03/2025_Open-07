@@ -1,228 +1,181 @@
-// DOM 요소
-const elements = {
-    input: document.getElementById('search-input'),
-    form: document.getElementById('search-form'),
-    suggestions: document.getElementById('tag-suggestions')
-};
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. DOM 요소 가져오기
+    const elements = {
+        input: document.getElementById('search-input'),
+        form: document.getElementById('search-form'),
+        suggestions: document.getElementById('tag-suggestions'),
+        mode: document.getElementById('search-mode')
+    };
 
-// 카테고리 설정
-const CATEGORIES = {
-    gender: ["men", "women", "unisex"],
-    color: ["white", "black", "gray", "navy", "beige"],
-    top: ["tshirt", "hoodie", "shirt", "sweater"],
-    bottom: ["pants", "jeans", "shorts", "skirt"],
-    outer: ["coat", "jacket", "blazer", "cardigan"]
-};
+    if (!elements.input || !elements.form || !elements.mode) return;
 
-const EXCLUSIVE_CATEGORIES = ["top", "bottom", "outer"];
+    // 2. 상수 및 데이터 설정
+    const CATEGORIES = {
+        gender: ["men", "women", "unisex"],
+        color: ["white", "black", "gray", "navy", "beige"],
+        top: ["tshirt", "hoodie", "shirt", "sweater"],
+        bottom: ["pants", "jeans", "shorts", "skirt"],
+        outer: ["coat", "jacket", "blazer", "cardigan"]
+    };
 
-// 모든 태그를 @ 접두사와 함께 생성
-const ALL_TAGS = Object.values(CATEGORIES)
-    .flat()
-    .map(tag => `@${tag}`);
+    // 하나만 선택 가능한 카테고리
+    const EXCLUSIVE_CATEGORIES = ["gender", "top", "bottom", "outer"];
 
-/**
- * 태그 문자열을 파싱하여 카테고리별로 분류
- * @param {string} tagString - 공백으로 구분된 태그 문자열
- * @returns {Object} 카테고리별로 분류된 태그 객체
- */
-function parseTags(tagString) {
-    const tags = getUniqueTags(tagString);
-    const selected = initializeSelectedTags();
+    // 검색용 전체 태그 리스트 생성 (@붙임)
+    const ALL_TAGS = Object.values(CATEGORIES)
+        .flat()
+        .map(tag => `@${tag}`);
 
-    tags.forEach(tag => {
-        const categoryName = findCategoryForTag(tag);
-        if (categoryName) {
-            addTagToCategory(selected, categoryName, tag);
-        }
-    });
+    // =========================================
+    // 3. 헬퍼 함수들
+    // =========================================
 
-    return selected;
-}
+    // 태그가 어떤 카테고리에 속하는지 찾기
+    function findCategoryForTag(tag) {
+        return Object.keys(CATEGORIES).find(category =>
+            CATEGORIES[category].includes(tag)
+        );
+    }
 
-/**
- * 문자열에서 중복 제거된 태그 배열 추출
- */
-function getUniqueTags(tagString) {
-    return [...new Set(
-        tagString
+    // 입력값에서 마지막 단어(현재 타이핑 중인 것) 추출
+    function getLastWord(value) {
+        return value.split(/\s+/).pop();
+    }
+
+    // 현재 입력창에 있는 유효한 태그들만 배열로 반환
+    function getCurrentTags() {
+        return elements.input.value
             .trim()
             .split(/\s+/)
-            .map(tag => tag.replace("@", "").toLowerCase())
-    )];
-}
+            .map(word => word.replace("@", "").toLowerCase())
+            .filter(word => {
+                // 실제 존재하는 카테고리 단어인지 확인
+                return Object.values(CATEGORIES).flat().includes(word);
+            });
+    }
 
-/**
- * 선택된 태그 객체 초기화
- */
-function initializeSelectedTags() {
-    return {
-        gender: [],
-        color: [],
-        top: null,
-        bottom: null,
-        outer: null
-    };
-}
+    // =========================================
+    // 4. 핵심 로직 (자동완성 필터링)
+    // =========================================
+    function filterTagsByKeyword(keyword) {
+        const currentTags = getCurrentTags();
 
-/**
- * 태그가 속한 카테고리 찾기
- */
-function findCategoryForTag(tag) {
-    return Object.keys(CATEGORIES).find(category =>
-        CATEGORIES[category].includes(tag)
-    );
-}
+        // 현재 선택된 태그들이 차지하고 있는 카테고리들 (예: ['gender', 'top'])
+        const occupiedCategories = currentTags.map(tag => findCategoryForTag(tag));
 
-/**
- * 카테고리에 태그 추가 (배타적 카테고리는 중복 체크)
- */
-function addTagToCategory(selected, categoryName, tag) {
-    if (EXCLUSIVE_CATEGORIES.includes(categoryName)) {
-        if (selected[categoryName]) {
-            console.warn(`중복된 ${categoryName} 태그: '${selected[categoryName]}'와 '${tag}'`);
+        return ALL_TAGS.filter(tag => {
+            // A. 키워드 매칭 확인
+            if (!tag.toLowerCase().startsWith(keyword)) return false;
+
+            const tagWithoutAt = tag.replace("@", "").toLowerCase();
+            const categoryName = findCategoryForTag(tagWithoutAt);
+
+            if (!categoryName) return true;
+
+            // B. 이미 입력된 태그는 제외
+            if (currentTags.includes(tagWithoutAt)) return false;
+
+            // C. 배타적 카테고리 체크 (성별, 상의 등은 하나만 선택 가능)
+            if (EXCLUSIVE_CATEGORIES.includes(categoryName)) {
+                if (occupiedCategories.includes(categoryName)) return false;
+            }
+
+            return true;
+        });
+    }
+
+    // =========================================
+    // 5. UI 조작 함수들 (제안창 표시/숨김)
+    // =========================================
+    function showSuggestions(tags) {
+        elements.suggestions.innerHTML = "";
+
+        if (tags.length === 0) {
+            hideSuggestions();
             return;
         }
-        selected[categoryName] = tag;
-    } else {
-        selected[categoryName].push(tag);
-    }
-}
 
-/**
- * 입력값에서 마지막 단어 추출
- */
-function getLastWord(value) {
-    return value.split(" ").pop();
-}
-
-/**
- * 키워드로 시작하는 태그 필터링 (중복 카테고리 제외)
- */
-function filterTagsByKeyword(keyword) {
-    const currentTags = getCurrentTags();
-    const hasExclusiveTag = currentTags.some(tag => {
-        const category = findCategoryForTag(tag);
-        return EXCLUSIVE_CATEGORIES.includes(category);
-    });
-
-    return ALL_TAGS.filter(tag => {
-        // 키워드 매칭
-        if (!tag.toLowerCase().startsWith(keyword)) {
-            return false;
-        }
-
-        const tagWithoutAt = tag.replace("@", "").toLowerCase();
-        const categoryName = findCategoryForTag(tagWithoutAt);
-
-        if (!categoryName) return true;
-
-        // 배타적 카테고리 중 하나라도 선택되었으면 모든 배타적 카테고리 태그 제외
-        if (EXCLUSIVE_CATEGORIES.includes(categoryName) && hasExclusiveTag) {
-            return false;
-        }
-
-        return true;
-    });
-}
-
-/**
- * 현재 입력창의 태그 목록 추출
- */
-function getCurrentTags() {
-    return elements.input.value
-        .trim()
-        .split(/\s+/)
-        .map(word => word.replace("@", "").toLowerCase())
-        .filter(word => {
-            // 유효한 태그만 필터링
-            return Object.values(CATEGORIES).flat().includes(word);
+        tags.forEach(tag => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = tag;
+            button.className = "tag-suggestion";
+            button.addEventListener("click", () => insertTag(tag));
+            elements.suggestions.appendChild(button);
         });
-}
 
-/**
- * 자동완성 제안 표시
- */
-function showSuggestions(tags) {
-    elements.suggestions.innerHTML = "";
-
-    if (tags.length === 0) {
-        hideSuggestions();
-        return;
+        elements.suggestions.style.display = "block";
     }
 
-    tags.forEach(tag => {
-        const button = createSuggestionButton(tag);
-        elements.suggestions.appendChild(button);
+    function hideSuggestions() {
+        elements.suggestions.style.display = "none";
+    }
+
+    function insertTag(tag) {
+        const words = elements.input.value.trim().split(/\s+/);
+        words.pop(); // 방금 치던 불완전한 단어 제거
+        words.push(tag); // 완성된 태그 추가
+        elements.input.value = `${words.join(" ")} `;
+        elements.input.focus();
+        hideSuggestions();
+    }
+
+    // =========================================
+    // 6. 이벤트 핸들러
+    // =========================================
+
+    // 입력창 타이핑 시
+    function handleInputChange() {
+        // 링크 모드면 자동완성 안 함
+        if (elements.mode.value === 'url') {
+            hideSuggestions();
+            return;
+        }
+
+        const lastWord = getLastWord(elements.input.value);
+
+        if (lastWord.startsWith("@")) {
+            const matches = filterTagsByKeyword(lastWord.toLowerCase());
+            showSuggestions(matches);
+        } else {
+            hideSuggestions();
+        }
+    }
+
+    // 폼 제출 시 (검색 버튼 엔터)
+    function handleFormSubmit(e) {
+        e.preventDefault();
+        const value = elements.input.value.trim();
+        const mode = elements.mode.value;
+
+        if (!value) return;
+
+        const paramName = mode === 'url' ? 'url' : 'keyword';
+        window.location.href = `search.html?${paramName}=${encodeURIComponent(value)}`;
+    }
+
+    // 모드 변경 시 (링크 <-> 키워드)
+    function handleModeChange() {
+        elements.input.value = "";
+        hideSuggestions();
+
+        const isUrlMode = elements.mode.value === 'url';
+        elements.input.placeholder = isUrlMode
+            ? "상품 페이지(링크)를 여기에 붙여넣으세요"
+            : "원하는 스타일을 입력하세요 (예: @men @coat)";
+
+        elements.input.focus();
+    }
+
+    // 외부 클릭 시 제안창 닫기
+    document.addEventListener("click", (e) => {
+        if (!elements.input.contains(e.target) && !elements.suggestions.contains(e.target)) {
+            hideSuggestions();
+        }
     });
 
-    elements.suggestions.style.display = "block";
-}
-
-/**
- * 제안 버튼 생성
- */
-function createSuggestionButton(tag) {
-    const button = document.createElement("button");
-    button.type = "button"; // 폼 제출 방지
-    button.textContent = tag;
-    button.className = "tag-suggestion";
-    button.addEventListener("click", () => insertTag(tag));
-    return button;
-}
-
-/**
- * 자동완성 제안 숨기기
- */
-function hideSuggestions() {
-    elements.suggestions.style.display = "none";
-}
-
-/**
- * 선택된 태그를 입력창에 삽입
- */
-function insertTag(tag) {
-    const words = elements.input.value.trim().split(" ");
-    words.pop(); // 마지막 단어(입력 중인 @키워드) 제거
-    words.push(tag); // 선택된 태그 추가
-    elements.input.value = `${words.join(" ")} `;
-    elements.input.focus();
-    hideSuggestions();
-}
-
-/**
- * 검색 폼 제출 처리
- */
-function handleFormSubmit(e) {
-    e.preventDefault();
-    const value = elements.input.value.trim();
-
-    if (!value) return;
-
-    window.location.href = `search.html?url=${encodeURIComponent(value)}`;
-}
-
-/**
- * 입력창 변경 처리
- */
-function handleInputChange() {
-    const lastWord = getLastWord(elements.input.value);
-
-    if (lastWord.startsWith("@")) {
-        const matches = filterTagsByKeyword(lastWord.toLowerCase());
-        showSuggestions(matches);
-    } else {
-        hideSuggestions();
-    }
-}
-
-// 이벤트 리스너 등록
-elements.input.addEventListener("input", handleInputChange);
-elements.form.addEventListener("submit", handleFormSubmit);
-
-// 외부 클릭 시 자동완성 숨기기
-document.addEventListener("click", (e) => {
-    if (!elements.input.contains(e.target) && !elements.suggestions.contains(e.target)) {
-        hideSuggestions();
-    }
+    // 이벤트 리스너 등록
+    elements.input.addEventListener("input", handleInputChange);
+    elements.form.addEventListener("submit", handleFormSubmit);
+    elements.mode.addEventListener("change", handleModeChange);
 });
