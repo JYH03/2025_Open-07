@@ -71,7 +71,7 @@ button {
     font-size: 16px;
     border: 1px solid #ddd;
     border-radius: 6px;
-    width: 300px;
+    width: 500px;
 }
 
 .search-container button[type="submit"] {
@@ -142,6 +142,25 @@ button {
 .add-btn:disabled {
     background: #ccc;
     cursor: not-allowed;
+}
+
+/* 상품 미 존재시 비교함 멘트*/
+.empty-state {
+    grid-column: 1 / -1; 
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 18px;
+    margin-bottom: 10px;
+    display: none;
+}
+
+.empty-state:only-child {
+    display: block; 
+    text-align: center;
+    padding: 60px 0;
+    color: #888;
+    grid-column: 1 / -1; 
 }
 
 /* [추가됨] 로딩 메시지 스타일 (HTML 인라인 스타일 제거용) */
