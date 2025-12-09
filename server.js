@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ★ 중요: 아까 성공했던 파이썬 실행 파일의 "절대 경로" ★
 // (백슬래시 \ 를 두 번씩 \\ 써야 오류가 안 납니다)
 // =======================================================
-const PYTHON_PATH = "C:\\Users\\PCuser\\AppData\\Local\\Programs\\Python\\Python312\\python.exe";
+const PYTHON_PATH = "C:\\Python313\\python.exe";
 
 app.get("/api/scrape", (req, res) => {
   const productUrl = req.query.url;
@@ -36,8 +36,9 @@ app.get("/api/scrape", (req, res) => {
     resultData += data.toString();
   });
 
-  // 3. 파이썬 에러 로그 받기
+  // 3. 파이썬 에러 로그 받기e 
   pythonProcess.stderr.on("data", (data) => {
+    console.error("[PY DEBUG]", data.toString());  // 🔥 로그 출력  
     errorData += data.toString();
   });
 
@@ -60,6 +61,12 @@ app.get("/api/scrape", (req, res) => {
       parsedResult.couponPriceFormatted = format(parsedResult.couponPrice);
       parsedResult.sourceUrl = productUrl;
 
+      console.log("============== [Node.js PRICE DEBUG] ==============");
+      console.log("원본 price 값:", parsedResult.price);
+      console.log("포맷된 priceFormatted:", parsedResult.priceFormatted);
+      console.log("원본 couponPrice:", parsedResult.couponPrice);
+      console.log("포맷된 couponPriceFormatted:", parsedResult.couponPriceFormatted);
+      console.log("====================================================");
       console.log(`[Node.js] 성공적으로 데이터 반환 완료`);
       res.json(parsedResult);
 
