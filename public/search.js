@@ -40,7 +40,11 @@ const Utils = {
     escapeHtml(text) {
         if (!text) return "";
         return text.replace(/[&<>"']/g, m => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
         })[m]);
     },
 
@@ -89,6 +93,8 @@ const ApiService = {
  * ==========================================
  */
 const Renderer = {
+
+    /* ---------- 가격 ---------- */
     price(data) {
         const { priceFormatted, couponPriceFormatted, couponPrice } = data;
         const hasCoupon = couponPrice && couponPrice > 0;
@@ -100,61 +106,89 @@ const Renderer = {
                     <span class="original-price">${priceFormatted}</span>
                 </div>`;
         }
-        return `<div class="price-container"><span class="final-price">${priceFormatted}</span></div>`;
+
+        return `
+            <div class="price-container">
+                <span class="final-price">${priceFormatted}</span>
+            </div>`;
     },
 
-    sizes(sizes) {
-        if (!sizes || sizes.length === 0) {
-            return { html: `<div class="size-label">No size info</div>`, hasSoldOut: false };
+    /* ---------- 옵션 공통 렌더러 (⭐ 핵심 추가) ---------- */
+    options(items, label) {
+        if (!items || items.length === 0) {
+            return { html: '', hasSoldOut: false };
         }
 
         let hasSoldOut = false;
 
-        const chips = sizes.map(item => {
+        const chips = items.map(item => {
             if (item.isSoldOut) hasSoldOut = true;
 
-            const name = item.color
-                ? `<b>${Utils.escapeHtml(item.color)}</b> : ${Utils.escapeHtml(item.size)}`
-                : Utils.escapeHtml(item.name);
-
-            return `<span class="size-chip ${item.isSoldOut ? 'soldout' : ''}">${name}</span>`;
+            return `
+                <span class="size-chip ${item.isSoldOut ? 'soldout' : ''}">
+                    ${Utils.escapeHtml(item.name)}
+                </span>
+            `;
         }).join('');
 
-        return { html: `<div class="size-chips">${chips}</div>`, hasSoldOut };
+        return {
+            html: `
+                <div class="size-container">
+                    <div class="size-label">${label}</div>
+                    <div class="size-chips">
+                        ${chips}
+                    </div>
+                </div>
+            `,
+            hasSoldOut
+        };
     },
 
+    /* ---------- 재입고 버튼 ---------- */
     restockBtn(hasSoldOut) {
         if (!hasSoldOut) return '';
         return `
             <button class="restock-btn" data-action="restock">
                 🔔 Notify me when restocked
-            </button>`;
+            </button>
+        `;
     },
 
+    /* ---------- 카드 생성 ---------- */
     createCard(data) {
         const siteInfo = Utils.getSiteInfo(data.sourceUrl);
         const priceHtml = this.price(data);
-        const sizeData = this.sizes(data.sizes);
-        const restockBtnHtml = this.restockBtn(sizeData.hasSoldOut);
+
+        const colorData = this.options(data.colors, "Options / Colors");
+        const sizeData = this.options(data.sizes, "Options / Sizes");
+
+        const restockBtnHtml = this.restockBtn(
+            colorData.hasSoldOut || sizeData.hasSoldOut
+        );
 
         return `
             <div class="product-card" data-url="${data.sourceUrl}">
-                <div class="site-badge ${siteInfo.badge}">${siteInfo.name}</div>
+                <div class="site-badge ${siteInfo.badge}">
+                    ${siteInfo.name}
+                </div>
+
                 <button class="delete-btn" data-action="delete">✕</button>
 
-                <div class="card-image" style="background-image: url('${data.image}')"></div>
+                <div class="card-image"
+                     style="background-image: url('${data.image}')">
+                </div>
 
                 <div class="card-body">
                     <h3 class="card-title">
-                        <a href="${data.sourceUrl}" target="_blank">${Utils.escapeHtml(data.title)}</a>
+                        <a href="${data.sourceUrl}" target="_blank">
+                            ${Utils.escapeHtml(data.title)}
+                        </a>
                     </h3>
 
                     ${priceHtml}
 
-                    <div class="size-container">
-                        <div class="size-label">Options / Sizes</div>
-                        ${sizeData.html}
-                    </div>
+                    ${colorData.html}
+                    ${sizeData.html}
 
                     <div class="card-actions">
                         ${restockBtnHtml}
@@ -193,8 +227,6 @@ const App = {
     bindEvents() {
         const { btn, input, container } = this.elements;
 
-        console.log("[DEBUG] Add button event registered");
-
         btn?.addEventListener("click", () => this.handleAddProduct());
 
         input?.addEventListener("keypress", (e) => {
@@ -221,7 +253,6 @@ const App = {
         const urlParam = params.get("url");
 
         if (urlParam && this.elements.input) {
-            console.log("[DEBUG] URL param detected:", urlParam);
             this.elements.input.value = urlParam;
             this.handleAddProduct();
         }
@@ -235,21 +266,15 @@ const App = {
     },
 
     async handleAddProduct() {
-        console.log("[DEBUG] handleAddProduct triggered");
-
         const url = this.elements.input.value.trim();
         if (!url) return alert(CONSTANTS.MESSAGES.URL_REQUIRED);
 
         this.setLoading(true);
 
         try {
-            console.log("[DEBUG] Sending URL to server:", url);
-
             const data = await ApiService.fetchProduct(url);
-
             const cardHtml = Renderer.createCard(data);
             this.elements.container.insertAdjacentHTML("afterbegin", cardHtml);
-
             this.elements.input.value = "";
         } catch (err) {
             alert(`${CONSTANTS.MESSAGES.SCRAPE_ERROR}\n${err.message}`);

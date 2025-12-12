@@ -2,6 +2,7 @@ import sys
 import json
 import re
 import time
+import requests
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict, field
@@ -16,7 +17,6 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
 
 # ==========================================
 # 1. CONFIG
@@ -72,8 +72,11 @@ class ProductData:
     price: int = 0
     image: str = ""
     sizes: List[Dict[str, Any]] = field(default_factory=list)
+    actualSizes: List[Dict[str, Any]] = field(default_factory=list)  # 🔥 추가
+    colors: List[Dict[str, Any]] = field(default_factory=list) 
     status: str = "active"
     couponPrice: Optional[int] = None
+
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
@@ -158,18 +161,25 @@ class BaseScraper(ABC):
         if not data:
             data = ProductData(site=self.site_name)
 
+        # 1️⃣ 가격 / 이미지 / actual-size API
         self._patch_missing_data(data)
+
+        # 2️⃣ 색상 (DOM 기반, 상품 링크)
+        self._collect_color_data(data)
+
+        # 3️⃣ 사이즈 (actualSizes 있으면 HTML 스킵)
+        self._collect_size_data(data)
+
         data.title = Utils.clean_title(data.title)
-
-        if len(data.sizes) == 0:
-            data.sizes.append({
-                "name": "Free / One Size",
-                "isSoldOut": self._check_soldout()
-            })
-
         return data
 
+    
     def _patch_missing_data(self, data: ProductData):
+        print(
+            f"[DEBUG] patch_missing_data called",
+            file=sys.stderr
+        )
+
         if not data.title:
             data.title = self._get_meta_content(Config.META_TITLE) or self.driver.title
 
@@ -178,9 +188,165 @@ class BaseScraper(ABC):
 
         if not data.price or data.price == 0:
             data.price = self._find_price_from_html()
+    
+    def _collect_size_data(self, data: ProductData):
+        print("[PY DEBUG] Collect size data start", file=sys.stderr)
 
-        if not data.sizes:
-            self._find_options_from_html(data)
+        goods_no = self._extract_goods_no()
+        if goods_no:
+            actual_json = self._fetch_actual_size(goods_no)
+            if actual_json:
+                actual_sizes = self._parse_actual_size(actual_json)
+                if actual_sizes:
+                    data.actualSizes = actual_sizes
+
+                    # 🔥 여기서 버튼용 sizes 생성
+                    data.sizes = [
+                        {
+                            "name": size_name,
+                            "isSoldOut": False  # actual-size API엔 품절 정보 없음
+                        }
+                        for size_name in actual_sizes.keys()
+                    ]
+
+                    print(
+                        f"[PY DEBUG] Size source: actual-size API → buttons {data.sizes}",
+                        file=sys.stderr
+                    )
+                    return  # ❗ HTML 파싱 절대 안 감
+                
+    def _collect_color_data(self, data: ProductData):
+        print("[PY DEBUG] Collect color data start", file=sys.stderr)
+
+        buttons = []
+        sources = set()
+
+        raw_colors = self._find_color_goods_from_dom()
+
+        for c in raw_colors:
+            if c.get("isCurrent"):
+                continue
+
+            goods_no = c.get("goodsNo")
+
+            # 🔥 색상 페이지로 이동
+            self.driver.get(f"https://www.musinsa.com/products/{goods_no}")
+            time.sleep(0.8)
+
+            color_name, source = self._resolve_color_name(goods_no)
+            sources.add(source)
+
+            buttons.append({
+                "name": color_name or goods_no,
+                "isSoldOut": False
+            })
+
+        data.colors = buttons
+
+        print(
+            f"[PY DEBUG] Color source: {', '.join(sorted(sources))} ✨ buttons {buttons}",
+            file=sys.stderr
+        )
+
+
+    def _find_color_goods_from_dom(self) -> list:
+        colors = []
+
+        anchors = self.driver.find_elements(
+            By.CSS_SELECTOR,
+            "a[class*='OtherColorGoods__Anchor']"
+        )
+
+        current_goods_no = self._extract_goods_no()
+
+        for a in anchors:
+            href = a.get_attribute("href")
+            if not href:
+                continue
+
+            m = re.search(r"/products/(\d+)", href)
+            if not m:
+                continue
+
+            goods_no = m.group(1)
+
+            colors.append({
+                "goodsNo": goods_no,
+                "isCurrent": goods_no == current_goods_no
+            })
+
+        return colors
+    
+    def _resolve_color_name(self, goods_no: str) -> tuple[str, str]:
+        # 1️⃣ JSON 시도
+        color = self._fetch_color_name_from_json(goods_no)
+        if color:
+            return color, "__NEXT_DATA__"
+
+        # 2️⃣ title fallback
+        color = self._fetch_color_name_from_title(goods_no)
+        if color:
+            return color, "page title"
+
+        return "", "unknown"
+    
+    def _fetch_color_name_from_json(self, goods_no: str) -> str:
+        try:
+            script_el = self.driver.find_element(By.ID, "__NEXT_DATA__")
+            json_data = json.loads(script_el.get_attribute("innerHTML"))
+
+            page_props = json_data.get("props", {}).get("pageProps", {})
+
+            state = (
+                page_props.get("state")
+                or page_props.get("initialState")
+                or {}
+            )
+
+            product = (
+                state.get("product")
+                or state.get("goods")
+                or page_props.get("product")
+                or page_props.get("goods")
+            )
+
+            if not product:
+                return ""
+
+            goods_name = product.get("goodsNm") or product.get("goodsName", "")
+            return self._extract_color_from_goods_name(goods_name)
+
+        except Exception:
+            return ""
+        
+    def _fetch_color_name_from_title(self, goods_no: str) -> str:
+        try:
+            title = self.driver.title
+            title = title.replace("| 무신사", "").strip()
+            title = re.sub(r'\s*-\s*사이즈\s*&\s*후기\s*$', '', title)
+
+            parts = title.split()
+            return parts[-1] if parts else ""
+
+        except Exception:
+            return ""
+        
+    def _extract_color_from_goods_name(self, goods_name: str) -> str:
+        if not goods_name:
+            return ""
+
+        patterns = [
+            r'\(([^)]+)\)\s*$',
+            r'_([^_]+)$',
+            r'-\s*([^-]+)$'
+        ]
+
+        for p in patterns:
+            m = re.search(p, goods_name)
+            if m:
+                return m.group(1).strip()
+
+        return ""
 
     def _find_price_from_html(self) -> int:
         try:
@@ -229,22 +395,129 @@ class BaseScraper(ABC):
 # 6. MUSINSA SCRAPER
 # ==========================================
 class MusinsaScraper(BaseScraper):
+
+    def _extract_goods_no(self) -> Optional[str]:
+        m = re.search(r"/products/(\d+)", self.driver.current_url)
+        return m.group(1) if m else None
+
+    def _fetch_actual_size(self, goods_no: str) -> Optional[dict]:
+        url = f"https://goods-detail.musinsa.com/api2/goods/{goods_no}/actual-size"
+        headers = {
+            "User-Agent": Config.USER_AGENT,
+            "Referer": f"https://www.musinsa.com/products/{goods_no}"
+        }
+
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code != 200:
+                print(f"[PY DEBUG] actual-size API failed: {r.status_code}", file=sys.stderr)
+                return None
+            return r.json()
+        except Exception as e:
+            print(f"[PY DEBUG] actual-size request error: {e}", file=sys.stderr)
+            return None
+        
+    def _parse_actual_size(self, actual_json: dict) -> dict:
+
+        result = {}
+
+        sizes = actual_json.get("data", {}).get("sizes", [])
+        for s in sizes:
+            size_name = s.get("name")
+            if not size_name:
+                continue
+
+            measurements = {}
+            for item in s.get("items", []):
+                key = item.get("name")
+                value = item.get("value")
+
+                if key and value is not None:
+                    measurements[key] = value
+
+            if measurements:
+                result[size_name] = measurements
+
+        return result
+
+
+    def _has_actual_size_api(self, goods_no: str) -> bool:
+        if not goods_no:
+            return False
+        url = f"https://goods-detail.musinsa.com/api2/goods/{goods_no}/actual-size"
+        try:
+            res = requests.get(url, timeout=3)
+            return res.status_code == 200 and "sizes" in res.text
+        except:
+            return False
+
+    def _detect_product_type(self) -> str:
+        goods_no = self._extract_goods_no()
+        if goods_no and self._has_actual_size_api(goods_no):
+            return "TYPE_A_ACTUALSIZE_DOM"
+
+        # DOM에 사이즈 버튼 여러 개면 다중 옵션
+        buttons = self.driver.find_elements(By.XPATH, "//button[normalize-space()]")
+        texts = [b.text.strip() for b in buttons if b.text.strip()]
+
+        if len(texts) == 1 and texts[0].upper() in ["FREE", "ONE SIZE"]:
+            return "TYPE_C_FREE"
+
+        if len(texts) >= 2:
+            return "TYPE_D_DOM_MULTI"
+
+        return "UNKNOWN"
     @property
     def site_name(self):
         return "musinsa"
 
     def _scrape_from_json(self):
         try:
-            script = self.driver.find_element(By.ID, "__NEXT_DATA__")
-            data = json.loads(script.get_attribute("innerHTML"))
+            print("[DEBUG] Start parsing __NEXT_DATA__", file=sys.stderr)
 
-            state = Utils.safe_get(data, ["props", "pageProps", "state"])
-            product = state.get("product") or state.get("goods")
+            # 1. __NEXT_DATA__ 존재 여부
+            script = self.driver.find_element(By.ID, "__NEXT_DATA__")
+            raw_json = script.get_attribute("innerHTML")
+            print("[DEBUG] __NEXT_DATA__ found", file=sys.stderr)
+
+            data = json.loads(raw_json)
+            print("[DEBUG] JSON loaded successfully", file=sys.stderr)
+
+            # 2. state 접근
+            page_props = Utils.safe_get(data, ["props", "pageProps"], {})
+
+            state = (
+                page_props.get("state")
+                or page_props.get("initialState")
+                or page_props
+            )
+
+            if not state:
+                print("[DEBUG] state is missing or empty", file=sys.stderr)
+                return None
+            print(f"[DEBUG] state keys: {list(state.keys())}", file=sys.stderr)
+
+            # 3. product / goods 접근
+            product = (
+                state.get("product")
+                or state.get("goods")
+                or page_props.get("product")
+                or page_props.get("goods")
+            )
 
             if not product:
-                print("[DEBUG] JSON product missing", file=sys.stderr)
+                print("[DEBUG] product/goods object not found in state", file=sys.stderr)
                 return None
+            print(f"[DEBUG] product keys: {list(product.keys())}", file=sys.stderr)
 
+            print(
+                "[DEBUG] pageProps keys:",
+                list(page_props.keys()),
+                file=sys.stderr
+            )
+
+
+            # 4. 가격 확인
             price = int(
                 product.get("finalPrice")
                 or product.get("price")
@@ -252,7 +525,9 @@ class MusinsaScraper(BaseScraper):
                 or product.get("goodsPrice")
                 or 0
             )
+            print(f"[DEBUG] extracted price: {price}", file=sys.stderr)
 
+            # 5. ProductData 생성
             pd = ProductData(
                 site="musinsa",
                 title=product.get("goodsNm", ""),
@@ -260,18 +535,38 @@ class MusinsaScraper(BaseScraper):
                 image=Utils.ensure_https(product.get("goodsImage", "")),
                 status="soldout" if product.get("isSoldOut") else "active",
             )
+            print("[DEBUG] ProductData initialized", file=sys.stderr)
 
-            opts = Utils.safe_get(product, ["goodsOption", "optionValues"], [])
-            for o in opts:
+            # 6. 옵션 접근
+            opts = Utils.safe_get(product, ["goodsOption", "optionValues"], None)
+            if opts is None:
+                print("[DEBUG] goodsOption.optionValues not found", file=sys.stderr)
+                return pd
+
+            print(f"[DEBUG] optionValues found, count = {len(opts)}", file=sys.stderr)
+
+            # 7. 사이즈 루프
+            for idx, o in enumerate(opts):
+                name = o.get("name")
+                soldout = o.get("soldOutYn") == "Y"
+
+                print(
+                    f"[DEBUG] option[{idx}] name={name}, soldOut={soldout}",
+                    file=sys.stderr
+                )
+
                 pd.sizes.append({
-                    "name": o.get("name"),
-                    "isSoldOut": o.get("soldOutYn") == "Y",
+                    "name": name,
+                    "isSoldOut": soldout,
                 })
+
+            print(f"[DEBUG] total sizes extracted: {len(pd.sizes)}", file=sys.stderr)
             return pd
 
         except Exception as e:
             print(f"[DEBUG] JSON parse error: {e}", file=sys.stderr)
             return None
+
 
     def _find_title_from_html(self):
         return ""
@@ -289,6 +584,116 @@ class MusinsaScraper(BaseScraper):
             return
 
         wait = WebDriverWait(self.driver, 5)
+
+        print("[PY DEBUG] Try A-type static size buttons", file=sys.stderr)
+
+        from selenium.common.exceptions import StaleElementReferenceException
+
+        SIZE_RE = re.compile(
+            r"^(XXXS|XXS|XS|S|M|L|XL|XXL|XXXL|FREE|ONE|ONE\s*SIZE|\d{2,3})$",
+            re.I
+        )
+
+        EXCLUDE_WORDS = [
+            "실측", "기준", "입력", "구매", "cm",
+            "총장", "어깨", "가슴", "소매",
+            "사이즈", "후기"
+        ]
+
+        # ✅ OptionBox 고정 노출 사이즈 버튼만 대상
+        buttons = self.driver.find_elements(
+            By.CSS_SELECTOR,
+            "div[class*='OptionBox__SelectOptionItemContainer']"
+        )
+
+        for btn in buttons:
+            try:
+                text = self.driver.execute_script(
+                    "return arguments[0].innerText;", btn
+                )
+
+                if not text:
+                    continue
+
+                text = text.replace("\n", " ").strip()
+
+                # ❌ 가이드 / 입력 버튼 제거
+                if any(word in text for word in EXCLUDE_WORDS):
+                    continue
+
+                token = text.split()[0].upper()
+
+                # ❌ 사이즈 패턴 아닌 것 제거
+                if not SIZE_RE.match(token):
+                    continue
+
+                cls = (btn.get_attribute("class") or "").lower()
+                is_soldout = (
+                    btn.get_attribute("disabled") is not None
+                    or "disabled" in cls
+                    or "pointer-events-none" in cls
+                    or "품절" in text
+                )
+
+                data.sizes.append({
+                    "name": token,
+                    "isSoldOut": is_soldout
+                })
+
+            except StaleElementReferenceException:
+                print("[PY DEBUG] stale element skipped", file=sys.stderr)
+                continue
+
+        # ✅ 하나라도 찾았으면 여기서 종료
+        if data.sizes:
+            print(f"[PY DEBUG] A-type sizes found: {data.sizes}", file=sys.stderr)
+            return
+
+
+
+        # ============================================================
+        # 0) 🔥 고정 노출 사이즈 (A-2 타입) 먼저 탐색
+        # ============================================================
+        print("[PY DEBUG] Try static size list parsing", file=sys.stderr)
+
+        static_size_selectors = [
+            # 무신사 고정 사이즈 버튼 패턴들
+            "div[class*='Size'] button",
+            "ul[class*='size'] li button",
+            "button[data-size]",
+        ]
+
+        static_options = []
+        for sel in static_size_selectors:
+            try:
+                els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                els = [el for el in els if el.text.strip()]
+                if els:
+                    static_options = els
+                    print(f"[PY DEBUG] Static size options found via {sel} ({len(els)})", file=sys.stderr)
+                    break
+            except:
+                continue
+
+        if static_options:
+            for el in static_options:
+                size = el.text.strip()
+                cls = (el.get_attribute("class") or "").lower()
+                disabled = el.get_attribute("disabled") is not None
+
+                is_soldout = (
+                    disabled
+                    or "soldout" in cls
+                    or "품절" in el.text
+                )
+
+                data.sizes.append({
+                    "name": size,
+                    "isSoldOut": is_soldout
+                })
+
+            return  # 🔥 여기서 끝 (드롭다운 로직 안 탐)
+
 
         # ============================================================
         # 1) Radix Dropdown 트리거(옵션박스 클릭)
@@ -315,38 +720,55 @@ class MusinsaScraper(BaseScraper):
             return
 
         # 클릭하여 옵션 메뉴 열기
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
         try:
             self.driver.execute_script("arguments[0].click();", trigger)
-            time.sleep(0.8)
-            print("[PY DEBUG] Dropdown opened", file=sys.stderr)
+            print("[PY DEBUG] Dropdown clicked", file=sys.stderr)
+
+            # ✅ 1) "열림"을 너무 좁게 잡지 말고 portal/컨텐츠 래퍼 등장으로 대기
+            WebDriverWait(self.driver, 6).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "[data-radix-portal], div[data-mds*='DropdownMenu']")
+                )
+            )
+            print("[PY DEBUG] Dropdown portal/container appeared", file=sys.stderr)
+
         except Exception as e:
-            print(f"[PY DEBUG] Dropdown click failed: {e}", file=sys.stderr)
+            print(f"[PY DEBUG] Dropdown click or wait failed: {e}", file=sys.stderr)
 
         # ============================================================
         # 2) Radix DropdownMenuContent 안에서 옵션 탐색
         # ============================================================
         option_selectors = [
-            # 최신 무신사 (Radix UI)
-            "div[class*='DropdownMenuContent'] button",
-            "div[class*='DropdownMenuContent'] div[data-state] button",
-
-            # Radix 내부 구성요소
-            "div[class*='OptionBox__SelectOptionItemContainer'] button",
-
-            # 예전 구조
-            "ul[class*='OptionList'] li button",
-            "ul.option_list li button"
+            # 🔥 네가 DevTools에서 확인한 진짜 옵션 노드
+            "div[class*='OptionBox__SelectOptionItemContainer']",
+            # 다른 페이지 변형 대비
+            "[role='option']",
         ]
 
         options = []
         for sel in option_selectors:
             try:
                 options = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                # 의미 없는 것(공백) 제거
+                options = [el for el in options if el.text.strip()]
                 if options:
                     print(f"[PY DEBUG] Options found via selector: {sel} ({len(options)})", file=sys.stderr)
                     break
-            except:
-                continue
+            except Exception as e:
+                print(f"[PY DEBUG] selector failed: {sel} ({e})", file=sys.stderr)
+
+        if not options:
+            print("[PY DEBUG] No options detected → Free Size", file=sys.stderr)
+            data.sizes.append({
+                "name": "Free / One Size",
+                "isSoldOut": self._check_soldout()
+            })
+            return
+
+
 
         # ============================================================
         # 3) 만약 아직도 못 찾았다면 Radix portal 내부를 다시 검사
@@ -376,28 +798,23 @@ class MusinsaScraper(BaseScraper):
         # 4) 파싱
         # ============================================================
         for el in options:
-            text = el.text.replace("\n", " ").strip()
+            text = el.text.strip()
             if not text:
                 continue
 
-            parts = text.split()
-            size = parts[0]  # S, M, L, 42, 260 등
-
             cls = el.get_attribute("class").lower()
-            is_disabled = el.get_attribute("disabled") is not None
-            soldout_text = ("품절" in text)
+            data_disabled = el.get_attribute("data-disabled")
 
-            is_soldout = is_disabled or soldout_text or "disabled" in cls
+            is_soldout = (
+                data_disabled is not None
+                or "disabled" in cls
+                or "gray-400" in cls
+            )
 
             data.sizes.append({
-                "name": size,
+                "name": text.split()[0],   # S / M / L / 260 등
                 "isSoldOut": is_soldout
             })
-
-        print(f"[PY DEBUG] Final parsed sizes: {data.sizes}", file=sys.stderr)
-
-
-
     def _check_soldout(self) -> bool:
         return "품절" in self.driver.page_source or "soldout" in self.driver.page_source.lower()
 
