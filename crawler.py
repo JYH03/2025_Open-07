@@ -96,56 +96,6 @@ class Utils:
         clean = str(text).replace(",", "").replace("원", "")
         nums = re.findall(r"\d+", clean)
         return int(nums[0]) if nums else 0
-    
-    @staticmethod
-    def extract_color_from_title(title: str) -> str:
-        if not title:
-            return ""
-
-        # 1. 불필요한 문구(노이즈) 먼저 제거
-        noise_list = [
-            " | 무신사", " - 사이즈 & 후기", "사이즈 & 후기", 
-            " : 무신사 스토어", "무신사 스토어", 
-            " [무신사 단독]", "[무신사 단독]", "(예약배송)"
-        ]
-        clean_title = title
-        for noise in noise_list:
-            clean_title = clean_title.replace(noise, "")
-        
-        clean_title = clean_title.strip()
-
-        # 2. 정규식 추출 시도
-        found_color = ""
-        
-        # 패턴 1: 대괄호 [Color]
-        m = re.search(r'\[([^\]]+)\]\s*$', clean_title)
-        if m: found_color = m.group(1)
-
-        # 패턴 2: 괄호 (Color)
-        elif re.search(r'\(([^)]+)\)\s*$', clean_title):
-            found_color = re.search(r'\(([^)]+)\)\s*$', clean_title).group(1)
-
-        # 패턴 3: 뒤에서 하이픈(-) 또는 언더바(_)
-        elif re.search(r'[_\-]\s*([^_^\-]+)$', clean_title):
-            found_color = re.search(r'[_\-]\s*([^_^\-]+)$', clean_title).group(1)
-        
-        # 패턴 4: 위의 패턴이 없고, 마지막 단어가 영어/한글인 경우 (위험하지만 시도)
-        else:
-            parts = clean_title.split()
-            if parts:
-                found_color = parts[-1]
-
-        found_color = found_color.strip()
-
-        # ★ 중요: 파싱된 결과가 '숫자'로만 구성되어 있거나 '특수문자'라면 색상이 아님
-        if found_color.isdigit() or re.match(r'^\d+$', found_color):
-            return "" # 숫자는 색상이 아님 (상품번호일 확률 높음)
-        
-        # 색상 이름이 너무 길면(20자 이상) 잘못 파싱된 것일 수 있음
-        if len(found_color) > 20:
-            return ""
-
-        return found_color
 
     @staticmethod
     def ensure_https(url: str) -> str:
@@ -179,7 +129,6 @@ class DriverFactory:
         #options.add_argument("--headless=new")
         options.add_argument(f"--window-size={Config.WINDOW_SIZE}")
         options.add_argument(f"user-agent={Config.USER_AGENT}")
-        options.add_argument("--headless=new")
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
@@ -266,35 +215,42 @@ class BaseScraper(ABC):
                     )
                     return  # ❗ HTML 파싱 절대 안 감
                 
-    # ============================================================
-    # 🔥 [수정됨] 색상 수집 메인 로직 (1~5단계 구현)
-    # ============================================================
     def _collect_color_data(self, data: ProductData):
         print("[PY DEBUG] Collect color data start", file=sys.stderr)
-        data.colors = []
 
-        # -------------------------------------------------------
-        # STEP 1 & 2: 색상 드롭다운 확인 및 파싱
-        # -------------------------------------------------------
+        buttons = []
+        sources = set()
+
         if self._scrape_color_dropdown(data):
             print(f"[PY DEBUG] Found colors via Dropdown: {len(data.colors)}", file=sys.stderr)
             return
 
-        # -------------------------------------------------------
-        # STEP 3 & 4: 다른 색상 연결 제품 확인 (Linked Products)
-        # -------------------------------------------------------
-        # 드롭다운이 없으면 링크형 색상인지 확인
-        if self._scrape_linked_colors(data):
-            print(f"[PY DEBUG] Found colors via Links: {len(data.colors)}", file=sys.stderr)
-            return
+        raw_colors = self._find_color_goods_from_dom()
 
-        # -------------------------------------------------------
-        # STEP 5: 단일 색상 (제목에서 추출)
-        # -------------------------------------------------------
-        # 연결된 제품도 없다면 단일 색상으로 판단
-        self._scrape_single_color(data)
-        print(f"[PY DEBUG] Single color extracted: {data.colors}", file=sys.stderr)
+        for c in raw_colors:
+            if c.get("isCurrent"):
+                continue
 
+            goods_no = c.get("goodsNo")
+
+            # 🔥 색상 페이지로 이동
+            self.driver.get(f"https://www.musinsa.com/products/{goods_no}")
+            time.sleep(0.8)
+
+            color_name, source = self._resolve_color_name(goods_no)
+            sources.add(source)
+
+            buttons.append({
+                "name": color_name or goods_no,
+                "isSoldOut": False
+            })
+
+        data.colors = buttons
+
+        print(
+            f"[PY DEBUG] Color source: {', '.join(sorted(sources))} ✨ buttons {buttons}",
+            file=sys.stderr
+        )
 
     def _scrape_color_dropdown(self, data: ProductData) -> bool:
         """
@@ -385,123 +341,6 @@ class BaseScraper(ABC):
             print(f"[PY DEBUG] Error parsing color dropdown: {e}", file=sys.stderr)
         
         return False
-
-    # ============================================================
-    # 링크된 색상 파싱 (ID만 있는 경우 requests로 제목 조회)
-    # ============================================================
-    def _scrape_linked_colors(self, data: ProductData) -> bool:
-        anchors = self.driver.find_elements(By.CSS_SELECTOR, "a[class*='OtherColorGoods__Anchor']")
-        if not anchors:
-            return False
-
-        collected_colors = []
-        current_goods_no = self._extract_goods_no()
-
-        # 1. 현재 상품의 색상 (제목 기반)
-        current_color = Utils.extract_color_from_title(data.title)
-        if current_color:
-            collected_colors.append({
-                "name": current_color,
-                "isSoldOut": self._check_soldout(),
-                "isCurrent": True
-            })
-
-        # 2. 링크된 상품들 처리
-        # Selenium 요소는 페이지 이동 시 stale 될 수 있으므로 필요한 정보만 먼저 저장
-        links_to_process = []
-        for a in anchors:
-            try:
-                href = a.get_attribute("href")
-                if not href or (current_goods_no and current_goods_no in href):
-                    continue
-                
-                # alt 텍스트 가져오기
-                img = a.find_element(By.TAG_NAME, "img")
-                alt_text = img.get_attribute("alt")
-                links_to_process.append({"href": href, "alt": alt_text})
-            except:
-                continue
-        
-        print(f"[PY DEBUG] Found {len(links_to_process)} linked colors to process.", file=sys.stderr)
-
-        for item in links_to_process:
-            href = item["href"]
-            alt_text = item.get("alt", "")
-            
-            # 시도 1: alt 텍스트에서 색상 추출
-            color_name = Utils.extract_color_from_title(alt_text)
-            
-            # 시도 2: alt가 없거나 숫자(상품번호)라면 -> 해당 URL을 requests로 찔러서 제목 확인
-            if not color_name or color_name.isdigit():
-                # HTML 태그에 data-original-price 등은 있지만 이름이 없으므로 페이지 조회 필수
-                color_name = self._fetch_color_name_via_request(href)
-
-            if color_name and not color_name.isdigit():
-                collected_colors.append({
-                    "name": color_name,
-                    "isSoldOut": False # 목록에 있으면 기본적으로 판매중이라 가정
-                })
-
-        # 중복 제거
-        unique_colors = []
-        seen = set()
-        for c in collected_colors:
-            if c['name'] not in seen:
-                seen.add(c['name'])
-                unique_colors.append(c)
-
-        if unique_colors:
-            data.colors = unique_colors
-            return True
-        
-        return False
-
-    def _fetch_color_name_via_request(self, url: str) -> str:
-        """
-        DOM에서 정보를 찾을 수 없을 때, 가볍게 HTTP 요청을 보내 제목을 긁어옴
-        """
-        try:
-            # 브라우저 쿠키나 세션 없이 단순히 HTML만 가져옴 (빠름)
-            headers = {"User-Agent": Config.USER_AGENT}
-            res = requests.get(url, headers=headers, timeout=2)
-            
-            if res.status_code == 200:
-                html = res.text
-                
-                # 1. og:title 메타태그 찾기
-                # <meta property="og:title" content="상품명 [색상]">
-                m = re.search(r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
-                if m:
-                    return Utils.extract_color_from_title(m.group(1))
-                
-                # 2. <title> 태그 찾기
-                m2 = re.search(r'<title>(.*?)</title>', html)
-                if m2:
-                    return Utils.extract_color_from_title(m2.group(1))
-                    
-        except Exception as e:
-            print(f"[PY DEBUG] Request failed for {url}: {e}", file=sys.stderr)
-        
-        return ""
-
-    def _scrape_single_color(self, data: ProductData):
-        """
-        STEP 5: 드롭다운도 없고 링크도 없으면 제목에서 색상 추출
-        """
-        color_name = Utils.extract_color_from_title(data.title)
-        
-        if color_name:
-            data.colors = [{
-                "name": color_name,
-                "isSoldOut": self._check_soldout()
-            }]
-        else:
-            # 색상 정보를 찾을 수 없음
-            # 기본값 'One Color' 혹은 빈 리스트
-            data.colors = [{
-                "name": "One Color",
-                "isSoldOut": self._check_soldout()
-            }]
 
 
     def _find_color_goods_from_dom(self) -> list:
@@ -1071,82 +910,7 @@ class MusinsaScraper(BaseScraper):
                 "isSoldOut": is_soldout
             })
     def _check_soldout(self) -> bool:
-            try:
-                # 무신사 구매 버튼 클래스 패턴
-                buy_btns = self.driver.find_elements(By.CSS_SELECTOR, "a[class*='BtnBuy'], button[class*='BtnBuy']")
-                
-                for btn in buy_btns:
-                    text = btn.text.strip()
-                    # 버튼 텍스트가 '품절'이면 진짜 품절
-                    if "품절" in text and "임박" not in text:
-                        return True
-                    
-                    # 버튼 텍스트가 '구매하기'인데 disabled 속성이 있으면 품절
-                
-                
-                return False
-
-            except Exception:
-                return False
-
-    # ============================================================
-    # 링크된 색상 파싱 (숫자 ID 방어 로직 추가)
-    # ============================================================
-    def _scrape_linked_colors(self, data: ProductData) -> bool:
-        anchors = self.driver.find_elements(By.CSS_SELECTOR, "a[class*='OtherColorGoods__Anchor']")
-        if not anchors:
-            return False
-
-        collected_colors = []
-        current_goods_no = self._extract_goods_no()
-
-        # 1. 현재 색상
-        current_color = Utils.extract_color_from_title(data.title)
-        if current_color:
-            collected_colors.append({
-                "name": current_color,
-                "isSoldOut": self._check_soldout(), # 수정된 로직 사용
-                "isCurrent": True
-            })
-
-        # 2. 링크된 색상들
-        for a in anchors:
-            try:
-                href = a.get_attribute("href")
-                if not href or (current_goods_no and current_goods_no in href):
-                    continue
-                
-                # 이미지 alt 속성에서 색상 추출 시도
-                img = a.find_element(By.TAG_NAME, "img")
-                alt_text = img.get_attribute("alt") # 예: "와이드 데님 팬츠 [라이트 블루]"
-                
-                color_name = Utils.extract_color_from_title(alt_text)
-                
-                # ★ 중요: 추출 실패했거나 숫자만 나오면 스킵
-                if not color_name or color_name.isdigit():
-                    continue
-
-                collected_colors.append({
-                    "name": color_name,
-                    "isSoldOut": False # 썸네일만 봐선 품절 여부 알기 어려움 (일단 False)
-                })
-
-            except Exception:
-                continue
-        
-        # 중복 제거
-        unique_colors = []
-        seen = set()
-        for c in collected_colors:
-            if c['name'] not in seen:
-                seen.add(c['name'])
-                unique_colors.append(c)
-
-        if unique_colors:
-            data.colors = unique_colors
-            return True
-        
-        return False
+        return "품절" in self.driver.page_source or "soldout" in self.driver.page_source.lower()
 
 
 # ==========================================
