@@ -243,15 +243,38 @@ class BaseScraper(ABC):
     def _collect_size_data(self, data: ProductData):
         print("[PY DEBUG] Collect size data start", file=sys.stderr)
 
+        # --------------------------------------------------
+        # 1️⃣ goods_no 추출
+        # --------------------------------------------------
         goods_no = self._extract_goods_no()
+        print(f"[PY DEBUG] goods_no = {goods_no}", file=sys.stderr)
+
+        # --------------------------------------------------
+        # 2️⃣ actual-size API (상의 / 하의 / 신발 공통 A안)
+        # --------------------------------------------------
         if goods_no:
             actual_json = self._fetch_actual_size(goods_no)
+            print(f"[PY DEBUG] actual_json is None? {actual_json is None}", file=sys.stderr)
+
             if actual_json:
+                try:
+                    print(
+                        "[PY DEBUG] actual_json keys:",
+                        list(actual_json.keys()),
+                        file=sys.stderr
+                    )
+                except Exception:
+                    print("[PY DEBUG] actual_json keys print failed", file=sys.stderr)
+
                 actual_sizes = self._parse_actual_size(actual_json)
+                print(
+                    f"[PY DEBUG] parsed actual_sizes = {actual_sizes}",
+                    file=sys.stderr
+                )
+
+                # 🔥 A안: actual-size가 있으면 여기서 끝
                 if actual_sizes:
                     data.actualSizes = actual_sizes
-
-                    # 🔥 여기서 버튼용 sizes 생성
                     data.sizes = [
                         {
                             "name": size_name,
@@ -264,11 +287,41 @@ class BaseScraper(ABC):
                         f"[PY DEBUG] Size source: actual-size API → buttons {data.sizes}",
                         file=sys.stderr
                     )
-                    return  # ❗ HTML 파싱 절대 안 감
+                    return
+
+        # --------------------------------------------------
+        # 3️⃣ 신발 DOM 사이즈 옵션 fallback (A안 확장)
+        # --------------------------------------------------
+        print("[PY DEBUG] Trying shoe DOM size parsing...", file=sys.stderr)
+
+        shoe_sizes = self._parse_shoe_sizes_from_dom()
+
+        print(
+            f"[PY DEBUG] shoe_sizes from DOM = {shoe_sizes}",
+            file=sys.stderr
+        )
+
+        if shoe_sizes:
+            data.actualSizes = shoe_sizes
+            data.sizes = [
+                {
+                    "name": size_name,
+                    "isSoldOut": info.get("isSoldOut", False)
+                }
+                for size_name, info in shoe_sizes.items()
+            ]
+
+            print(
+                f"[PY DEBUG] Size source: shoe DOM options → buttons {data.sizes}",
+                file=sys.stderr
+            )
+            return
+    # --------------------------------------------------
+    # 4️⃣ 최후 fallback (아무것도 못 찾은 경우)
+    # --------------------------------------------------
+        print("[PY DEBUG] No size information found (final fallback)", file=sys.stderr)
+
                 
-    # ============================================================
-    # 🔥 [수정됨] 색상 수집 메인 로직 (1~5단계 구현)
-    # ============================================================
     def _collect_color_data(self, data: ProductData):
         print("[PY DEBUG] Collect color data start", file=sys.stderr)
         data.colors = []
@@ -283,7 +336,6 @@ class BaseScraper(ABC):
         # -------------------------------------------------------
         # STEP 3 & 4: 다른 색상 연결 제품 확인 (Linked Products)
         # -------------------------------------------------------
-        # 드롭다운이 없으면 링크형 색상인지 확인
         if self._scrape_linked_colors(data):
             print(f"[PY DEBUG] Found colors via Links: {len(data.colors)}", file=sys.stderr)
             return
@@ -291,7 +343,6 @@ class BaseScraper(ABC):
         # -------------------------------------------------------
         # STEP 5: 단일 색상 (제목에서 추출)
         # -------------------------------------------------------
-        # 연결된 제품도 없다면 단일 색상으로 판단
         self._scrape_single_color(data)
         print(f"[PY DEBUG] Single color extracted: {data.colors}", file=sys.stderr)
 
@@ -673,27 +724,52 @@ class MusinsaScraper(BaseScraper):
             return None
         
     def _parse_actual_size(self, actual_json: dict) -> dict:
-
         result = {}
 
-        sizes = actual_json.get("data", {}).get("sizes", [])
-        for s in sizes:
-            size_name = s.get("name")
-            if not size_name:
-                continue
+        data = actual_json.get("data")
+        if not isinstance(data, dict):
+            # 아직 해석 불가 (상위 로직에서 판단)
+            return result
 
-            measurements = {}
-            for item in s.get("items", []):
-                key = item.get("name")
-                value = item.get("value")
+        # ==================================================
+        # 1️⃣ 의류 타입: sizes + items
+        # ==================================================
+        sizes = data.get("sizes")
+        if isinstance(sizes, list):
+            for s in sizes:
+                size_name = s.get("name")
+                if not size_name:
+                    continue
 
-                if key and value is not None:
-                    measurements[key] = value
+                measurements = {}
+                for item in s.get("items", []):
+                    key = item.get("name")
+                    value = item.get("value")
 
-            if measurements:
-                result[size_name] = measurements
+                    if key and value is not None:
+                        measurements[key] = value
+
+                # 의류는 measurements가 있을 때만 의미 있음
+                if measurements:
+                    result[size_name] = measurements
+
+            if result:
+                return result
+
+        # ==================================================
+        # 2️⃣ 신발 타입: footSize / mm 기반
+        # ==================================================
+        foot_sizes = data.get("footSize")
+        if isinstance(foot_sizes, list):
+            for f in foot_sizes:
+                size = f.get("size") or f.get("length")
+                if size:
+                    result[str(size)] = {
+                        "mm": size
+                    }
 
         return result
+
 
 
     def _has_actual_size_api(self, goods_no: str) -> bool:
@@ -1147,6 +1223,116 @@ class MusinsaScraper(BaseScraper):
             return True
         
         return False
+    def _parse_shoe_sizes_from_dom(self) -> dict:
+        print("[PY DEBUG] Enter _parse_shoe_sizes_from_dom()", file=sys.stderr)
+
+        result = {}
+
+        # --------------------------------------------------
+        # 1️⃣ 구매 옵션 영역 후보 찾기
+        # --------------------------------------------------
+        containers = self.driver.find_elements(
+            By.CSS_SELECTOR,
+            "section, div"
+        )
+
+        for area in containers:
+            text = self.driver.execute_script(
+                "return arguments[0].innerText;", area
+            )
+
+            if not text:
+                continue
+
+            # --------------------------------------------------
+            # 2️⃣ '구매 옵션 영역'인지 1차 판별
+            #   - 사이즈 숫자
+            #   - 품절 / 재입고 / 남음 키워드
+            # --------------------------------------------------
+            if not (
+                re.search(r"\b2\d{2}\b", text) and
+                ("품절" in text or "재고" in text or "남음" in text)
+            ):
+                continue
+
+            print(
+                "[PY DEBUG] size option container detected (preview):",
+                text[:200],
+                file=sys.stderr
+            )
+
+            # --------------------------------------------------
+            # 3️⃣ 줄 단위 파싱 (핵심)
+            # --------------------------------------------------
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+
+                # ❌ 시즌/연도/평점 등 배제
+                if any(x in line for x in ["SS", "FW", "평점", "후기"]):
+                    continue
+
+                # 토큰 분리
+                tokens = line.replace("(", " ").replace(")", " ").split()
+
+                for token in tokens:
+                    # 1️⃣ 숫자 단독만 허용
+                    if not re.fullmatch(r"\d{3}", token):
+                        continue
+
+                    mm = int(token)
+
+                    # 2️⃣ 신발 사이즈 범위
+                    if not (200 <= mm <= 300):
+                        continue
+
+                    # 3️⃣ 5mm 단위만 허용
+                    if mm % 5 != 0:
+                        continue
+
+                    is_soldout = (
+                        "품절" in line or
+                        "재입고" in line
+                    )
+
+                    result[str(mm)] = {
+                        "mm": mm,
+                        "isSoldOut": is_soldout
+                    }
+
+            # 👉 첫 번째로 인식된 구매 옵션 영역만 사용
+            if result:
+                break
+
+        print(
+            f"[PY DEBUG] shoe_sizes from DOM (filtered) = {result}",
+            file=sys.stderr
+        )
+
+        return result
+
+
+    def _normalize_shoe_size_to_mm(self, raw: str) -> str:
+        if not raw:
+            return ""
+
+        s = raw.strip().lower().replace("mm", "").replace("cm", "").strip()
+
+        # 1) 3자리 mm (230~320 정도)
+        if re.fullmatch(r"\d{3}", s):
+            return s
+
+        # 2) cm (정수/소수) → mm 변환
+        if re.fullmatch(r"\d{2}(\.\d)?", s):
+            cm = float(s)
+            mm = int(round(cm * 10))
+            # 신발 범위 sanity check (너무 튀면 변환 취소)
+            if 200 <= mm <= 350:
+                return str(mm)
+
+        return ""
+
 
 
 # ==========================================
