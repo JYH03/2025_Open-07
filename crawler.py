@@ -270,9 +270,7 @@ class BaseScraper(ABC):
     # --------------------------------------------------
     # 4️⃣ 최후 fallback (아무것도 못 찾은 경우)
     # --------------------------------------------------
-        if not data.sizes:
-            print("[PY DEBUG] No size info found via API or DOM. Trying Info Notice fallback...", file=sys.stderr)
-            self._scrape_size_from_info_notice(data)
+        print("[PY DEBUG] No size information found (final fallback)", file=sys.stderr)
 
                 
     def _collect_color_data(self, data: ProductData):
