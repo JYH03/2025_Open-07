@@ -113,7 +113,7 @@ const Renderer = {
             </div>`;
     },
 
-    /* ---------- 옵션 공통 렌더러 (⭐ 핵심 추가) ---------- */
+    /* ---------- 옵션 공통 렌더러 (버튼으로 변경됨) ---------- */
     options(items, label) {
         if (!items || items.length === 0) {
             return { html: '', hasSoldOut: false };
@@ -124,10 +124,18 @@ const Renderer = {
         const chips = items.map(item => {
             if (item.isSoldOut) hasSoldOut = true;
 
+            // <span> -> <button> 변경
+            // type="button"을 명시해야 form submit이 발생하지 않음
             return `
-                <span class="size-chip ${item.isSoldOut ? 'soldout' : ''}">
+                <button 
+                    type="button" 
+                    class="size-chip ${item.isSoldOut ? 'soldout' : ''}"
+                    data-action="select-option"
+                    data-option-name="${Utils.escapeHtml(item.name)}"
+                    data-option-status="${item.isSoldOut ? 'soldout' : 'available'}"
+                >
                     ${Utils.escapeHtml(item.name)}
-                </span>
+                </button>
             `;
         }).join('');
 
@@ -159,6 +167,7 @@ const Renderer = {
         const siteInfo = Utils.getSiteInfo(data.sourceUrl);
         const priceHtml = this.price(data);
 
+        // 옵션 렌더링
         const colorData = this.options(data.colors, "Options / Colors");
         const sizeData = this.options(data.sizes, "Options / Sizes");
 
@@ -227,23 +236,60 @@ const App = {
     bindEvents() {
         const { btn, input, container } = this.elements;
 
+        // 추가 버튼 클릭
         btn?.addEventListener("click", () => this.handleAddProduct());
 
+        // 인풋창 엔터키
         input?.addEventListener("keypress", (e) => {
             if (e.key === "Enter") this.handleAddProduct();
         });
 
+        // ⭐ 카드 내부 이벤트 위임 (삭제, 재입고, 옵션선택)
         container?.addEventListener("click", (e) => {
             const target = e.target;
-            const action = target.dataset.action;
-            const card = target.closest(".product-card");
+
+            // 버튼 내부 아이콘 등을 클릭했을 때를 대비해 closest 사용
+            // select-option 버튼이나 delete-btn 등을 찾음
+            const button = target.closest("button");
+            if (!button) return;
+
+            const action = button.dataset.action;
+            const card = button.closest(".product-card");
 
             if (!card) return;
 
             if (action === "delete") {
+                // 카드 삭제
                 card.remove();
+
             } else if (action === "restock") {
+                // 재입고 알림 (새창 열기)
                 Utils.openWindow(card.dataset.url);
+
+            } else if (action === "select-option") {
+                // ⭐ [수정됨] 옵션 선택 (토글 방식)
+
+                // 1. 품절 체크
+                if (button.dataset.optionStatus === 'soldout') {
+                    return; // 품절된 상품은 클릭 무시
+                }
+
+                // 2. 같은 그룹 내 형제 버튼들 찾기 (.size-chips 안의 버튼들)
+                const parent = button.parentElement;
+                const siblings = parent.querySelectorAll('.size-chip');
+
+                // 3. 현재 버튼이 이미 선택되어 있었는지 확인
+                const wasSelected = button.classList.contains('selected');
+
+                // 4. 모든 형제 버튼의 선택 상태 초기화 (라디오 버튼 처럼 하나만 선택되게)
+                siblings.forEach(el => el.classList.remove('selected'));
+
+                // 5. 이전에 선택되지 않았던 경우에만 선택 상태 추가 (토글 On)
+                // (이미 선택된 걸 눌렀다면 4번 과정에서 꺼진 상태로 유지됨 -> 토글 Off)
+                if (!wasSelected) {
+                    button.classList.add('selected');
+                    console.log(`[Selected] ${button.dataset.optionName}`);
+                }
             }
         });
     },

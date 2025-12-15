@@ -1,6 +1,6 @@
 /* =========================================
-   1. 기본 설정 (Reset & Global)
-   ========================================= */
+   1. 기본 설정 (Reset & Global)
+   ========================================= */
 body {
     margin: 0;
     padding: 0;
@@ -26,8 +26,8 @@ button {
 }
 
 /* =========================================
-   2. 메인 검색 페이지 (index.html) 스타일
-   ========================================= */
+   2. 메인 검색 페이지 (index.html) 스타일
+   ========================================= */
 .search-container {
     max-width: 800px;
     margin: 100px auto 0;
@@ -92,8 +92,8 @@ button {
 
 
 /* =========================================
-   3. 비교함 페이지 (search.html) 스타일
-   ========================================= */
+   3. 비교함 페이지 (search.html) 스타일
+   ========================================= */
 
 /* 상단 고정 입력바 */
 .add-container {
@@ -146,7 +146,7 @@ button {
 
 /* 상품 미 존재시 비교함 멘트*/
 .empty-state {
-    grid-column: 1 / -1; 
+    grid-column: 1 / -1;
     text-align: center;
     padding: 60px 20px;
     color: #999;
@@ -156,11 +156,11 @@ button {
 }
 
 .empty-state:only-child {
-    display: block; 
+    display: block;
     text-align: center;
     padding: 60px 0;
     color: #888;
-    grid-column: 1 / -1; 
+    grid-column: 1 / -1;
 }
 
 /* [추가됨] 로딩 메시지 스타일 (HTML 인라인 스타일 제거용) */
@@ -184,8 +184,8 @@ button {
 }
 
 /* =========================================
-   4. 상품 카드 디자인 (공통)
-   ========================================= */
+   4. 상품 카드 디자인 (공통)
+   ========================================= */
 .product-card {
     background: #fff;
     border: 1px solid #eee;
@@ -308,8 +308,8 @@ button {
 }
 
 /* =========================================
-   5. 사이즈 뱃지 스타일
-   ========================================= */
+   5. 사이즈 뱃지 스타일 (수정됨)
+   ========================================= */
 .size-container {
     margin-top: auto;
     padding-top: 12px;
@@ -336,18 +336,54 @@ button {
     border-radius: 4px;
     color: #495057;
     white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 0.1s;
+    /* 부드러운 효과를 위해 추가 */
 }
+
+/* ⭐ 클릭 시 진한 회색 피드백 추가 ⭐ */
+.size-chip:active:not(.soldout) {
+    background-color: #d8dadc;
+    border-color: #c9cbcc;
+}
+
+/* -------------------------------------- */
+
 
 .size-chip.soldout {
     background-color: #fff5f5;
     color: #adb5bd;
     text-decoration: line-through;
     border-color: #ffe3e3;
+    cursor: not-allowed;
+}
+
+/* ... 기존 .size-chip 스타일 아래에 추가 ... */
+
+/* ⭐ 선택된(Selected) 버튼 스타일 */
+.size-chip.selected {
+    background-color: #333;
+    /* 진한 회색/검정 배경 */
+    color: #fff;
+    /* 흰색 글씨 */
+    border-color: #333;
+    /* 테두리도 진하게 */
+    font-weight: bold;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    /* 살짝 눌린 듯한 그림자 효과 */
+}
+
+/* 품절된 상품은 선택되어도 스타일이 다르거나 선택 안되게 처리 */
+.size-chip.selected.soldout {
+    background-color: #eee;
+    color: #999;
+    border-color: #ddd;
+    box-shadow: none;
 }
 
 /* =========================================
-   6. 검색창 자동완성 (Tag Suggestions)
-   ========================================= */
+   6. 검색창 자동완성 (Tag Suggestions)
+   ========================================= */
 .tag-suggestions {
     position: absolute;
     top: 100%;
@@ -414,54 +450,8 @@ button {
 }
 
 /* =========================================
-   [추가] 9. 품절 상태 및 재입고 알림 버튼
-   ========================================= */
-
-/* 품절된 사이즈 칩 스타일 (회색 + 취소선) */
-.size-chip.soldout {
-    background-color: #f1f1f1;
-    color: #bbb;
-    text-decoration: line-through;
-    border-color: #eee;
-    cursor: not-allowed;
-}
-
-/* 재입고 알림 버튼 (품절 옵션이 있을 때만 등장) */
-.restock-btn {
-    margin-top: 10px;
-    padding: 10px;
-    background-color: #fff;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    color: #555;
-    font-size: 13px;
-    font-weight: bold;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    transition: all 0.2s;
-}
-
-.restock-btn:hover {
-    background-color: #f8f9fa;
-    border-color: #007bff;
-    color: #007bff;
-}
-
-/* 카드 하단 버튼 영역 분리 */
-.card-actions {
-    margin-top: auto;
-    /* 카드의 맨 아래로 밀어내기 */
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-/* =========================================
-   [추가] 9. 품절 상태 및 재입고 알림 버튼
-   ========================================= */
+   [추가] 9. 품절 상태 및 재입고 알림 버튼
+   ========================================= */
 
 /* 품절된 사이즈 칩 스타일 (회색 + 취소선) */
 .size-chip.soldout {

@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ★ 중요: 아까 성공했던 파이썬 실행 파일의 "절대 경로" ★
 // (백슬래시 \ 를 두 번씩 \\ 써야 오류가 안 납니다)
 // =======================================================
-const PYTHON_PATH = "C:\\Python313\\python.exe";
+const PYTHON_PATH = "python";
 console.log("[Node.js] server.js loaded");
 
 app.get("/test", (req, res) => {
