@@ -199,7 +199,6 @@ class BaseScraper(ABC):
                 actual_sizes = self._parse_actual_size(actual_json)
                 if actual_sizes:
                     data.actualSizes = actual_sizes
-
                     # 🔥 여기서 버튼용 sizes 생성
                     data.sizes = [
                         {
@@ -215,16 +214,20 @@ class BaseScraper(ABC):
                     )
                     return  # ❗ HTML 파싱 절대 안 감
                 
+        if not data.sizes:
+            print("[PY DEBUG] No buttons found. Trying Info Notice Table...", file=sys.stderr)
+            self._scrape_size_from_info_notice(data)
+                
     def _collect_color_data(self, data: ProductData):
         print("[PY DEBUG] Collect color data start", file=sys.stderr)
 
         buttons = []
         sources = set()
-
+        # 1. 드롭다운 크롤링 시도
         if self._scrape_color_dropdown(data):
             print(f"[PY DEBUG] Found colors via Dropdown: {len(data.colors)}", file=sys.stderr)
             return
-
+        # 2. 연관 이미지 상품 색상 파싱 시도
         raw_colors = self._find_color_goods_from_dom()
 
         for c in raw_colors:
@@ -247,8 +250,15 @@ class BaseScraper(ABC):
 
         data.colors = buttons
 
+        #3. 상품정보고시 파싱 시도
+        if not data.colors:
+            print("[PY DEBUG] No colors found via Dropdown or Links. Trying Info Notice fallback...", file=sys.stderr)
+            self._scrape_color_from_info_notice(data)
+            if data.colors:
+                sources.add("InfoNotice")
+
         print(
-            f"[PY DEBUG] Color source: {', '.join(sorted(sources))} ✨ buttons {buttons}",
+            f"[PY DEBUG] Color source: {', '.join(sorted(sources))} ✨ buttons {data.colors}",
             file=sys.stderr
         )
 
@@ -515,7 +525,14 @@ class MusinsaScraper(BaseScraper):
 
         result = {}
 
-        sizes = actual_json.get("data", {}).get("sizes", [])
+        if not actual_json:
+            return result
+        data_node = actual_json.get("data")
+        if not data_node:
+            return result
+        sizes = data_node.get("sizes", [])
+        if not sizes:
+            return result     
         for s in sizes:
             size_name = s.get("name")
             if not size_name:
@@ -909,6 +926,134 @@ class MusinsaScraper(BaseScraper):
                 "name": text.split()[0],   # S / M / L / 260 등
                 "isSoldOut": is_soldout
             })
+
+    def _scrape_size_from_info_notice(self, data: ProductData):
+        # 상품 정보 고시(Accordion) 내부의 '치수' 항목을 파싱
+        print("[PY DEBUG] Trying to parse Info Notice with Unicode & Click...", file=sys.stderr)
+        
+        # '치수'의 유니코드: \uce58\uc218
+        KEYWORD_SIZE = "\uce58\uc218" 
+        
+        try:
+            # 0. 페이지 하단으로 스크롤
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight - 1000);")
+            time.sleep(1)
+
+            # 1. '상품 고시 정보' 탭 오픈
+            # '상품 고시 정보'가 포함된 버튼 찾기 (유니코드: \uc0c1\ud488 \uace0\uc2dc \uc815\ubcf4)
+            try:
+                toggle_btn = self.driver.find_element(
+                    By.XPATH, 
+                    "//button[contains(., '\uc0c1\ud488 \uace0\uc2dc \uc815\ubcf4')]" 
+                )
+                # 닫혀있는지(aria-expanded="false") 확인 후 클릭
+                if toggle_btn.get_attribute("aria-expanded") == "false":
+                    self.driver.execute_script("arguments[0].click();", toggle_btn)
+                    print("[PY DEBUG] Expanded Info Notice Accordion", file=sys.stderr)
+                    time.sleep(1)
+            except Exception:
+                # 버튼 못 찾으면 이미 열려있거나 구조가 다르다고 판단하고 진행
+                pass
+
+            # 2. '치수' 항목 찾기 (유니코드 적용된 XPath)
+            target_element = self.driver.find_element(
+                By.XPATH, 
+                f"//dt[.//span[contains(text(), '{KEYWORD_SIZE}')]]/following-sibling::dd[1]"
+            )
+            
+            raw_text = target_element.text.strip()
+            print(f"[PY DEBUG] Found Info Notice Text: {raw_text}", file=sys.stderr)
+
+            # 3. 데이터 정제
+            if not raw_text or "참조" in raw_text or "이미지" in raw_text:
+                return
+
+            import re
+            tokens = re.split(r'[,/\n]+', raw_text)
+            
+            valid_sizes = []
+            for t in tokens:
+                clean_name = t.strip()
+                if clean_name:
+                    valid_sizes.append({
+                        "name": clean_name,
+                        "isSoldOut": True 
+                    })
+
+            if valid_sizes:
+                data.sizes.extend(valid_sizes)
+                print(f"[PY DEBUG] Extracted sizes from Info Notice: {len(valid_sizes)}", file=sys.stderr)
+
+        except Exception as e:
+            print(f"[PY DEBUG] Info Notice parsing failed: {e}", file=sys.stderr)
+
+    def _scrape_color_from_info_notice(self, data: ProductData):
+        # 상품 정보 고시(Accordion) 내부의 '색상' 항목을 파싱
+        print("[PY DEBUG] Trying to parse Color from Info Notice...", file=sys.stderr)
+        
+        # '색상'의 유니코드: \uc0c9\uc0c1
+        KEYWORD_COLOR = "\uc0c9\uc0c1"
+        
+        try:
+            # 0. 페이지 하단으로 스크롤 (기존 로직 유지)
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight - 1000);")
+            time.sleep(1)
+
+            # 1. '상품 고시 정보' 탭 오픈 (기존 로직 유지)
+            try:
+                toggle_btn = self.driver.find_element(
+                    By.XPATH, 
+                    "//button[contains(., '\uc0c1\ud488 \uace0\uc2dc \uc815\ubcf4')]" 
+                )
+                if toggle_btn.get_attribute("aria-expanded") == "false":
+                    self.driver.execute_script("arguments[0].click();", toggle_btn)
+                    print("[PY DEBUG] Expanded Info Notice Accordion (Color)", file=sys.stderr)
+                    time.sleep(1)
+            except Exception:
+                pass
+
+            # 2. '색상' 항목 찾기
+            target_element = self.driver.find_element(
+                By.XPATH, 
+                f"//dt[.//span[contains(text(), '{KEYWORD_COLOR}')]]/following-sibling::dd[1]"
+            )
+            
+            raw_text = target_element.text.strip()
+            print(f"[PY DEBUG] Found Info Notice Color Text: {raw_text}", file=sys.stderr)
+
+            # 3. 데이터 정제
+            if not raw_text or "참조" in raw_text or "이미지" in raw_text:
+                return
+
+            import re
+            
+            # (중요) 콤마(,)를 기준으로 먼저 분리
+            tokens = raw_text.split(',')
+            
+            valid_colors = []
+            for t in tokens:
+                t = t.strip()
+                if not t:
+                    continue
+                
+                # (중요) 정규식: 문자열 시작(^)에 있는 숫자(\d+) 제거
+                # 예: "01블랙" -> "블랙", "화이트" -> "화이트"
+                clean_name = re.sub(r'^\d+', '', t).strip()
+                
+                if clean_name:
+                    valid_colors.append({
+                        "name": clean_name,
+                        "isSoldOut": True  # 사이즈 로직과 동일하게 유지 (재고 확인 불가하므로)
+                    })
+
+            if valid_colors:
+                data.colors.extend(valid_colors)
+                print(f"[PY DEBUG] Extracted colors from Info Notice: {len(valid_colors)}", file=sys.stderr)
+
+        except Exception as e:
+            print(f"[PY DEBUG] Info Notice Color parsing failed: {e}", file=sys.stderr)
+
+
     def _check_soldout(self) -> bool:
         return "품절" in self.driver.page_source or "soldout" in self.driver.page_source.lower()
 
