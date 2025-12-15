@@ -15,8 +15,15 @@ app.use(express.static(path.join(__dirname, "public")));
 // (백슬래시 \ 를 두 번씩 \\ 써야 오류가 안 납니다)
 // =======================================================
 const PYTHON_PATH = "C:\\Python313\\python.exe";
+console.log("[Node.js] server.js loaded");
+
+app.get("/test", (req, res) => {
+  console.log("[Node.js] test endpoint hit");
+  res.send("OK");
+});
 
 app.get("/api/scrape", (req, res) => {
+  console.log("[Node.js] crawl endpoint hit");
   const productUrl = req.query.url;
 
   if (!productUrl) {
