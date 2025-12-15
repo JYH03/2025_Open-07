@@ -25,18 +25,17 @@
 
 | 이름 | 역할 | 담당 영역 |
 |------|------|------------|
-| 조영훈 | 팀장 | javascript 영역 구현, API 연동 |
-| 최종윤 | 팀원 | CSS 디자인, API 연동 |
-| 유정호 | 팀원 | html 영역 구현, API 연동 |
-* API는 연동 및 구현, 디자인 과정에서 구체적 역할 재분배 예정
+| 조영훈 | 팀장 | javascript 영역 구현, server 및 크롤링 스크립트 실행 구현 |
+| 최종윤 | 팀원 | CSS 디자인, Python 크롤러 구현 |
+| 유정후 | 팀원 | html 영역 구현, Python 크롤러 구현 |
   
 # Technologies Used
 
   **Frontend**
-    - HTML, CSS, JavaScript
+    - HTML, CSS, JavaScript -
 
-  **API**
-    - 의류 사이트 및 쇼핑몰 사이트 API
+  **Backend**
+    - JavaScript, Python -
   
  **Deployment**
     - GitHub Pages (정적 웹사이트 배포)
