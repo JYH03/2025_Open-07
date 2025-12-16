@@ -4,7 +4,7 @@ const path = require("path");
 const { spawn } = require("child_process"); // 파이썬 실행을 위한 모듈
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
