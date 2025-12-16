@@ -494,3 +494,29 @@ button {
     flex-direction: column;
     gap: 8px;
 }
+
+/* 품절된 칩 공통 스타일 (컬러, 사이즈 모두 적용) */
+.size-chip.soldout {
+    opacity: 0.5;
+    /* 흐릿하게 만듦 */
+    text-decoration: line-through;
+    /* 글자에 취소선 긋기 */
+    background-color: #eee;
+    /* 회색 배경 */
+    color: #999;
+    /* 회색 글자 */
+    border-color: #ddd;
+}
+
+/* 버튼이 disabled 상태일 때 (사이즈 버튼용) */
+.size-chip:disabled {
+    cursor: not-allowed !important;
+    /* 마우스 올리면 금지 표시 🚫 */
+    pointer-events: none;
+    /* 클릭 이벤트 아예 차단 */
+}
+
+/* 컬러 칩인데 품절인 경우 (모양만 유지) */
+span.size-chip.soldout {
+    cursor: default;
+}

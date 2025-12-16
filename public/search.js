@@ -1,6 +1,6 @@
 /**
  * ==========================================
- * 1. Config
+ * Smart Outfit Viewer - search.js (Final)
  * ==========================================
  */
 console.log("[DEBUG] search.js loaded");
@@ -18,15 +18,15 @@ const CONSTANTS = {
     SELECTORS: {
         INPUT: 'url-input',
         BTN: 'add-btn',
+        CLEAR_BTN: 'clear-btn',      // 전체 삭제 버튼
         LOADING: 'loading',
         CONTAINER: 'grid-container',
-        DELETE_BTN: '.delete-btn',
-        RESTOCK_BTN: '.restock-btn'
+        EMPTY_STATE: 'empty-state'   // 빈 화면 안내 문구
     },
     MESSAGES: {
-        URL_REQUIRED: 'Please enter a product URL!',
-        SERVER_ERROR: 'A server communication error occurred.',
-        SCRAPE_ERROR: 'Failed to retrieve product information.'
+        URL_REQUIRED: '상품 URL을 입력해주세요!',
+        SCRAPE_ERROR: '상품 정보를 가져오는데 실패했습니다.',
+        CONFIRM_CLEAR: '정말 모든 상품을 삭제하시겠습니까? (되돌릴 수 없습니다)'
     }
 };
 
@@ -50,7 +50,7 @@ const Utils = {
 
     getSiteInfo(url) {
         if (url.includes("musinsa")) return CONFIG.SITES.musinsa;
-        if (url.includes("naver") || url.includes("smartstore")) return CONFIG.SITES.naver;
+        if (url.includes("naver") || url.includes("smartstore") || url.includes("brand.naver")) return CONFIG.SITES.naver;
         return CONFIG.SITES.default;
     },
 
@@ -67,7 +67,7 @@ const Utils = {
  */
 const ApiService = {
     async fetchProduct(url) {
-        console.log("[DEBUG] Fetching product from server:", url);
+        console.log("[DEBUG] Fetching product:", url);
         try {
             const res = await fetch(`${CONFIG.API_URL}?url=${encodeURIComponent(url)}`);
             const data = await res.json();
@@ -75,10 +75,7 @@ const ApiService = {
             if (!res.ok || data.error) {
                 throw new Error(data.detail || data.error || CONSTANTS.MESSAGES.SCRAPE_ERROR);
             }
-
-            console.log("[DEBUG] API fetch success");
             return data;
-
         } catch (err) {
             console.error("[API ERROR]", err);
             throw err;
@@ -94,7 +91,6 @@ const ApiService = {
  */
 const Renderer = {
 
-    /* ---------- 가격 ---------- */
     price(data) {
         const { priceFormatted, couponPriceFormatted, couponPrice } = data;
         const hasCoupon = couponPrice && couponPrice > 0;
@@ -106,15 +102,13 @@ const Renderer = {
                     <span class="original-price">${priceFormatted}</span>
                 </div>`;
         }
-
         return `
             <div class="price-container">
                 <span class="final-price">${priceFormatted}</span>
             </div>`;
     },
 
-    /* ---------- 옵션 공통 렌더러 (버튼으로 변경됨) ---------- */
-    options(items, label) {
+    options(items, label, isClickable = true, groupName = '') {
         if (!items || items.length === 0) {
             return { html: '', hasSoldOut: false };
         }
@@ -124,18 +118,28 @@ const Renderer = {
         const chips = items.map(item => {
             if (item.isSoldOut) hasSoldOut = true;
 
-            // <span> -> <button> 변경
-            // type="button"을 명시해야 form submit이 발생하지 않음
+            // 태그 및 속성 설정
+            const tagName = 'button';
+            const typeAttr = 'type="button"';
+
+            let classAttr = `size-chip ${item.isSoldOut ? 'soldout' : ''}`;
+            let disabledAttr = item.isSoldOut ? 'disabled' : '';
+
+            // 모든 칩에 액션 부여 (클릭 이벤트 처리를 위해)
+            let actionAttr = 'data-action="select-option"';
+
             return `
-                <button 
-                    type="button" 
-                    class="size-chip ${item.isSoldOut ? 'soldout' : ''}"
-                    data-action="select-option"
+                <${tagName} 
+                    ${typeAttr} 
+                    class="${classAttr}"
+                    ${actionAttr}
+                    data-group="${groupName}"
                     data-option-name="${Utils.escapeHtml(item.name)}"
                     data-option-status="${item.isSoldOut ? 'soldout' : 'available'}"
+                    ${disabledAttr}
                 >
                     ${Utils.escapeHtml(item.name)}
-                </button>
+                </${tagName}>
             `;
         }).join('');
 
@@ -143,16 +147,13 @@ const Renderer = {
             html: `
                 <div class="size-container">
                     <div class="size-label">${label}</div>
-                    <div class="size-chips">
-                        ${chips}
-                    </div>
+                    <div class="size-chips">${chips}</div>
                 </div>
             `,
             hasSoldOut
         };
     },
 
-    /* ---------- 재입고 버튼 ---------- */
     restockBtn(hasSoldOut) {
         if (!hasSoldOut) return '';
         return `
@@ -162,21 +163,30 @@ const Renderer = {
         `;
     },
 
-    /* ---------- 카드 생성 ---------- */
     createCard(data) {
         const siteInfo = Utils.getSiteInfo(data.sourceUrl);
         const priceHtml = this.price(data);
 
-        // 옵션 렌더링
-        const colorData = this.options(data.colors, "Options / Colors");
-        const sizeData = this.options(data.sizes, "Options / Sizes");
+        // 조합 데이터 저장
+        const combinations = data.combinations || [];
+        const combinationsJson = JSON.stringify(combinations);
 
-        const restockBtnHtml = this.restockBtn(
-            colorData.hasSoldOut || sizeData.hasSoldOut
-        );
+        // 옵션 HTML 생성
+        const colorData = this.options(data.colors, "Options / Colors", true, "color");
+        const sizeData = this.options(data.sizes, "Options / Sizes", false, "size");
+
+        // 품절 여부 판단 (조합 데이터 우선 확인)
+        let isAnySoldOut = false;
+        if (combinations.length > 0) {
+            isAnySoldOut = combinations.some(combo => combo.isSoldOut);
+        } else {
+            isAnySoldOut = colorData.hasSoldOut || sizeData.hasSoldOut;
+        }
+
+        const restockBtnHtml = this.restockBtn(isAnySoldOut);
 
         return `
-            <div class="product-card" data-url="${data.sourceUrl}">
+            <div class="product-card" data-url="${data.sourceUrl}" data-combinations='${combinationsJson}'>
                 <div class="site-badge ${siteInfo.badge}">
                     ${siteInfo.name}
                 </div>
@@ -195,7 +205,6 @@ const Renderer = {
                     </h3>
 
                     ${priceHtml}
-
                     ${colorData.html}
                     ${sizeData.html}
 
@@ -216,11 +225,13 @@ const Renderer = {
  */
 const App = {
     elements: {},
+    savedProducts: [],
 
     init() {
         console.log("[DEBUG] App initialized");
         this.cacheElements();
         this.bindEvents();
+        this.loadFromStorage();
         this.checkUrlParams();
     },
 
@@ -228,76 +239,146 @@ const App = {
         this.elements = {
             input: document.getElementById(CONSTANTS.SELECTORS.INPUT),
             btn: document.getElementById(CONSTANTS.SELECTORS.BTN),
+            clearBtn: document.getElementById(CONSTANTS.SELECTORS.CLEAR_BTN), // [복구] 전체삭제 버튼
             loading: document.getElementById(CONSTANTS.SELECTORS.LOADING),
-            container: document.getElementById(CONSTANTS.SELECTORS.CONTAINER)
+            container: document.getElementById(CONSTANTS.SELECTORS.CONTAINER),
+            emptyState: document.getElementById(CONSTANTS.SELECTORS.EMPTY_STATE) // [복구] 빈 화면
         };
     },
 
+    loadFromStorage() {
+        const data = localStorage.getItem("my_wishlist");
+        if (data) {
+            this.savedProducts = JSON.parse(data);
+            this.savedProducts.forEach(productData => {
+                const cardHtml = Renderer.createCard(productData);
+                this.elements.container.insertAdjacentHTML("beforeend", cardHtml);
+            });
+        }
+        this.updateUIState(); // [복구] UI 상태 업데이트
+    },
+
+    saveToStorage() {
+        localStorage.setItem("my_wishlist", JSON.stringify(this.savedProducts));
+        this.updateUIState(); // [복구] 저장할 때마다 UI 업데이트
+    },
+
+    // [복구] 화면 상태 관리 함수 (버튼 숨김/표시)
+    updateUIState() {
+        const hasItems = this.savedProducts.length > 0;
+
+        // 빈 화면 메시지 제어
+        if (this.elements.emptyState) {
+            this.elements.emptyState.style.display = hasItems ? 'none' : 'block';
+        }
+
+        // 전체 삭제 버튼 제어
+        if (this.elements.clearBtn) {
+            this.elements.clearBtn.style.display = hasItems ? 'inline-block' : 'none';
+        }
+    },
+
     bindEvents() {
-        const { btn, input, container } = this.elements;
+        const { btn, input, container, clearBtn } = this.elements;
 
-        // 추가 버튼 클릭
-        btn?.addEventListener("click", () => this.handleAddProduct());
+        // 추가 버튼
+        if (btn) btn.addEventListener("click", () => this.handleAddProduct());
 
-        // 인풋창 엔터키
-        input?.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") this.handleAddProduct();
-        });
+        // 인풋 엔터키
+        if (input) {
+            input.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") this.handleAddProduct();
+            });
+        }
 
-        // ⭐ 카드 내부 이벤트 위임 (삭제, 재입고, 옵션선택)
-        container?.addEventListener("click", (e) => {
-            const target = e.target;
+        // [복구] 전체 삭제 버튼 이벤트
+        if (clearBtn) {
+            clearBtn.addEventListener("click", () => this.handleClearAll());
+        }
 
-            // 버튼 내부 아이콘 등을 클릭했을 때를 대비해 closest 사용
-            // select-option 버튼이나 delete-btn 등을 찾음
-            const button = target.closest("button");
-            if (!button) return;
+        // 카드 내부 버튼 클릭 이벤트 (위임)
+        if (container) {
+            container.addEventListener("click", (e) => {
+                const target = e.target;
+                const button = target.closest("button");
+                if (!button) return;
 
-            const action = button.dataset.action;
-            const card = button.closest(".product-card");
+                const action = button.dataset.action;
+                const card = button.closest(".product-card");
 
-            if (!card) return;
+                // select-option은 card가 필수지만, 나머지는 아닐 수도 있음
+                if (!card && action === "select-option") return;
 
-            if (action === "delete") {
-                // 카드 삭제
-                card.remove();
-
-            } else if (action === "restock") {
-                // 재입고 알림 (새창 열기)
-                Utils.openWindow(card.dataset.url);
-
-            } else if (action === "select-option") {
-                // ⭐ [수정됨] 옵션 선택 (토글 방식)
-
-                // 1. 품절 체크
-                if (button.dataset.optionStatus === 'soldout') {
-                    return; // 품절된 상품은 클릭 무시
+                if (action === "delete") {
+                    // 개별 삭제
+                    const urlToDelete = card.dataset.url;
+                    card.remove();
+                    this.savedProducts = this.savedProducts.filter(p => p.sourceUrl !== urlToDelete);
+                    this.saveToStorage();
                 }
-
-                // 2. 같은 그룹 내 형제 버튼들 찾기 (.size-chips 안의 버튼들)
-                const parent = button.parentElement;
-                const siblings = parent.querySelectorAll('.size-chip');
-
-                // 3. 현재 버튼이 이미 선택되어 있었는지 확인
-                const wasSelected = button.classList.contains('selected');
-
-                // 4. 모든 형제 버튼의 선택 상태 초기화 (라디오 버튼 처럼 하나만 선택되게)
-                siblings.forEach(el => el.classList.remove('selected'));
-
-                // 5. 이전에 선택되지 않았던 경우에만 선택 상태 추가 (토글 On)
-                // (이미 선택된 걸 눌렀다면 4번 과정에서 꺼진 상태로 유지됨 -> 토글 Off)
-                if (!wasSelected) {
-                    button.classList.add('selected');
-                    console.log(`[Selected] ${button.dataset.optionName}`);
+                else if (action === "restock") {
+                    Utils.openWindow(card.dataset.url);
                 }
-            }
-        });
+                else if (action === "select-option") {
+                    this.handleOptionSelect(button, card);
+                }
+            });
+        }
+    },
+
+    // [복구] 옵션 선택 로직 분리
+    handleOptionSelect(button, card) {
+        const group = button.dataset.group;
+        const parent = button.parentElement;
+
+        // 선택 스타일 토글
+        parent.querySelectorAll('.size-chip').forEach(el => el.classList.remove('selected'));
+        button.classList.add('selected');
+
+        // 컬러 선택 시 사이즈 재고 연동
+        if (group === "color") {
+            const selectedColor = button.dataset.optionName;
+            const combinations = JSON.parse(card.dataset.combinations || "[]");
+            const sizeButtons = card.querySelectorAll('[data-group="size"]');
+
+            sizeButtons.forEach(sizeBtn => {
+                const sizeName = sizeBtn.dataset.optionName;
+                const combo = combinations.find(c => c.color === selectedColor && c.size === sizeName);
+
+                if (combo) {
+                    if (combo.isSoldOut) {
+                        sizeBtn.disabled = true;
+                        sizeBtn.classList.add('soldout');
+                        sizeBtn.classList.remove('selected');
+                    } else {
+                        sizeBtn.disabled = false;
+                        sizeBtn.classList.remove('soldout');
+                    }
+                }
+            });
+        }
+    },
+
+    // [복구] 전체 삭제 처리 함수
+    handleClearAll() {
+        if (confirm(CONSTANTS.MESSAGES.CONFIRM_CLEAR)) {
+            // 1. 데이터 초기화
+            this.savedProducts = [];
+            // 2. 저장소 삭제
+            localStorage.removeItem("my_wishlist");
+
+            // 3. 화면에서 카드만 삭제 (empty-state는 남겨야 함)
+            const cards = this.elements.container.querySelectorAll('.product-card');
+            cards.forEach(c => c.remove());
+
+            // 4. UI 상태 업데이트
+            this.updateUIState();
+        }
     },
 
     checkUrlParams() {
         const params = new URLSearchParams(window.location.search);
         const urlParam = params.get("url");
-
         if (urlParam && this.elements.input) {
             this.elements.input.value = urlParam;
             this.handleAddProduct();
@@ -306,21 +387,36 @@ const App = {
 
     setLoading(isLoading) {
         const { input, btn, loading } = this.elements;
-        input.disabled = isLoading;
-        btn.disabled = isLoading;
-        loading.style.display = isLoading ? "block" : "none";
+        if (input) input.disabled = isLoading;
+        if (btn) btn.disabled = isLoading;
+        if (loading) loading.style.display = isLoading ? "block" : "none";
     },
 
     async handleAddProduct() {
         const url = this.elements.input.value.trim();
         if (!url) return alert(CONSTANTS.MESSAGES.URL_REQUIRED);
 
+        // 중복 체크
+        if (this.savedProducts.some(p => p.sourceUrl === url)) {
+            alert("이미 추가된 상품입니다!");
+            this.elements.input.value = "";
+            return;
+        }
+
         this.setLoading(true);
 
         try {
             const data = await ApiService.fetchProduct(url);
             const cardHtml = Renderer.createCard(data);
+
+            // 화면 맨 앞에 추가 (빈 화면 안내 뒤, 혹은 컨테이너 시작)
+            // empty-state가 있다면 그 뒤에 추가되지 않도록 주의
+            // insertAdjacentHTML 'afterbegin'은 자식 요소 중 가장 위에 붙음
             this.elements.container.insertAdjacentHTML("afterbegin", cardHtml);
+
+            this.savedProducts.unshift(data);
+            this.saveToStorage();
+
             this.elements.input.value = "";
         } catch (err) {
             alert(`${CONSTANTS.MESSAGES.SCRAPE_ERROR}\n${err.message}`);
@@ -330,7 +426,6 @@ const App = {
         }
     }
 };
-
 
 // Start App
 document.addEventListener("DOMContentLoaded", () => App.init());

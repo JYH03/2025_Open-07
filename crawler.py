@@ -72,22 +72,28 @@ class Config:
 # ==========================================
 @dataclass
 class ProductData:
-    site: str
-    title: str = ""
-    price: int = 0
-    image: str = ""
-    sizes: List[Dict[str, Any]] = field(default_factory=list)
-    actualSizes: List[Dict[str, Any]] = field(default_factory=list)  # 🔥 추가
-    colors: List[Dict[str, Any]] = field(default_factory=list) 
-    status: str = "active"
-    couponPrice: Optional[int] = None
+    def __init__(self, site="", title="", price=0, image="", colors=None, sizes=None, combinations=None):
+        self.site = site
+        self.title = title
+        self.price = price
+        self.image = image
+        self.colors = colors if colors else []
+        self.sizes = sizes if sizes else []
+        # [추가됨] 조합 정보를 담을 변수
+        self.combinations = combinations if combinations else [] 
 
-
-    def to_dict(self) -> Dict[str, Any]:
-        result = asdict(self)
-        if self.couponPrice is None:
-            result.pop("couponPrice")
-        return result
+    def to_dict(self):
+        return {
+            "site": self.site,
+            "title": self.title,
+            "price": self.price,
+            "priceFormatted": f"{int(self.price):,}원" if self.price else "가격 정보 없음",
+            "image": self.image,
+            "colors": self.colors,
+            "sizes": self.sizes,
+            # [추가됨] 딕셔너리로 변환할 때도 포함
+            "combinations": self.combinations 
+        }
 
 
 # ==========================================
@@ -1328,28 +1334,215 @@ class NaverScraper(BaseScraper):
 
     def _scrape_from_json(self):
         try:
-            html = self.driver.page_source
-            match = re.search(r"window\.__PRELOADED_STATE__\s*=\s*({.*?});", html)
-            if not match:
-                print("[DEBUG] NAVER JSON missing", file=sys.stderr)
+            print("[DEBUG] >>> NEW SCRAPER CODE V4 (ALL-IN-ONE) RUNNING <<<", file=sys.stderr)
+
+            # 1. 데이터 가져오기
+            state = self.driver.execute_script("return window.__PRELOADED_STATE__")
+            if not state:
+                state = self.driver.execute_script("return window.__APOLLO_STATE__")
+            
+            if not state: return None
+
+            # 2. 데이터 위치 찾기 (재귀 탐색 - Deep Search)
+            # JSON 트리 구조를 탐색하여 '옵션 정보'를 가진 진짜 데이터를 찾아냅니다.
+            def find_real_product_data(data, depth=0):
+                if depth > 5: return None # 너무 깊으면 중단
+                if isinstance(data, dict):
+                    # 옵션 데이터 후보군 키워드 확인
+                    has_combos = "optionCombinations" in data and len(data["optionCombinations"] or []) > 0
+                    has_standards = "optionStandards" in data and len(data["optionStandards"] or []) > 0
+                    has_simple = "simpleOptions" in data and len(data["simpleOptions"] or []) > 0
+                    
+                    if has_combos or has_standards or has_simple:
+                        return data
+                    
+                    # 없으면 하위 딕셔너리 탐색
+                    for k, v in data.items():
+                        if isinstance(v, dict):
+                            found = find_real_product_data(v, depth+1)
+                            if found: return found
                 return None
 
-            state = json.loads(match.group(1))
-            product = Utils.safe_get(state, ["product", "A"])
+            product = find_real_product_data(state)
+            
+            # 못 찾았을 경우 기본 경로 시도
+            if not product:
+                product = Utils.safe_get(state, ["productDetail", "A"]) or \
+                          Utils.safe_get(state, ["product", "A"]) or \
+                          state.get("product")
 
             if not product:
+                print("[DEBUG] FAILED to find product object.", file=sys.stderr)
                 return None
+
+            print("[DEBUG] Product Object Found! Extracting details...", file=sys.stderr)
+
+            # 3. 기본 정보 추출 (제목, 가격, 이미지)
+            title = product.get("dispName") or product.get("name") or ""
+            
+            benefits = product.get("benefitsView") or {}
+            price = benefits.get("discountedSalePrice") or \
+                    product.get("discountedSalePrice") or \
+                    product.get("salePrice") or \
+                    product.get("price") or 0
+
+            image_url = ""
+            rep_img = product.get("representImage")
+            if rep_img and isinstance(rep_img, dict):
+                image_url = rep_img.get("url", "")
+            elif product.get("images"):
+                image_url = product["images"][0].get("url", "") if isinstance(product["images"][0], dict) else product["images"][0]
+
+            # ================================================================
+            # 4. [핵심] 옵션 추출 (조합 정보 포함)
+            # ================================================================
+            colors_map = {}
+            sizes_map = {}
+            combinations_list = []  # [추가됨] 모든 조합(색상+사이즈) 정보를 담을 리스트
+
+            # (A) 조합형 옵션
+            combinations = product.get("optionCombinations", [])
+            
+            # (B) 독립형/표준형 옵션
+            standards = product.get("optionStandards", [])
+            
+            if combinations:
+                print(f"[DEBUG] Extracting from COMBINATIONS ({len(combinations)})", file=sys.stderr)
+                for combo in combinations:
+                    n1 = combo.get("optionName1") # 색상
+                    n2 = combo.get("optionName2") # 사이즈
+                    stock = combo.get("stockQuantity", 0)
+                    is_avail = stock > 0
+                    
+                    # [추가됨] 조합 정보 저장
+                    if n1 and n2:
+                        combinations_list.append({
+                            "color": n1,
+                            "size": n2,
+                            "isSoldOut": not is_avail
+                        })
+
+                    if n1: 
+                        if n1 not in colors_map: colors_map[n1] = False
+                        if is_avail: colors_map[n1] = True
+                    if n2:
+                        if n2 not in sizes_map: sizes_map[n2] = False
+                        if is_avail: sizes_map[n2] = True
+
+            elif standards:
+                print(f"[DEBUG] Extracting from STANDARDS ({len(standards)})", file=sys.stderr)
+                # 표준형은 구조가 복잡하여 n1(색상), n2(사이즈) 매칭이 어려울 수 있으나
+                # 가능한 범위 내에서 처리 (보통 드롭다운 2개인 경우)
+                # 여기서는 단순화하여 기존 로직 유지하되 combinations_list는 비워둡니다.
+                # (프론트엔드에서 데이터가 없으면 기존 방식대로 동작)
+                for std in standards:
+                    opt_type = std.get("type") or std.get("optionName")
+                    options = std.get("options") or []
+                    for opt in options:
+                        opt_name = opt.get("optionName") or opt.get("name")
+                        is_avail = opt.get("usable", True) and opt.get("stockQuantity", 1) > 0
+                        
+                        if "COLOR" in str(opt_type).upper() or "색상" in str(opt_type):
+                            colors_map[opt_name] = is_avail
+                        else:
+                            sizes_map[opt_name] = is_avail
+
+            colors_list = [{"name": n, "isSoldOut": not v} for n, v in colors_map.items()]
+            sizes_list = [{"name": n, "isSoldOut": not v} for n, v in sizes_map.items()]
 
             return ProductData(
                 site="naver",
-                title=product.get("name", ""),
-                price=product.get("discountedPrice")
-                or product.get("salePrice")
-                or product.get("price", 0),
+                title=title,
+                price=price,
+                image=image_url,
+                colors=colors_list,
+                sizes=sizes_list,
+                combinations=combinations_list 
             )
+
         except Exception as e:
-            print(f"[DEBUG] NAVER JSON error: {e}", file=sys.stderr)
+            print(f"[DEBUG] V4 Error: {e}", file=sys.stderr)
             return None
+
+    # ================================================================
+    # [추가할 함수 2] 색상 함수 바로 밑에 붙여넣으세요
+    # ================================================================
+    def _scrape_size_from_info_notice(self, data):
+        """
+        품절 시, HTML의 '상품정보 제공고시' 테이블에서 사이즈(치수) 정보를 가져오는 예비 함수
+        """
+        try:
+            print("[DEBUG] Trying Info Notice fallback for SIZE...", file=sys.stderr)
+            
+            # 1. '치수' 또는 '사이즈' 텍스트가 포함된 테이블 행(th) 찾기
+            target = None
+            try:
+                # '치수'라는 단어를 먼저 찾고, 없으면 '사이즈'를 찾음
+                target = self.driver.find_element(By.XPATH, "//th[contains(text(), '치수') or contains(text(), '사이즈')]/following-sibling::td")
+            except:
+                pass
+            
+            # 2. 찾았으면 텍스트 파싱
+            if target:
+                text = target.text.strip()
+                print(f"[DEBUG] Found size text in notice: {text}", file=sys.stderr)
+                
+                # '참조', '상세' 같은 말이 아니면 유효한 사이즈로 간주
+                if "참조" not in text and "상세" not in text:
+                    import re
+                    # 콤마(,)나 슬래시(/)로 구분된 경우 분리
+                    sizes_list = re.split(r'[,/]', text)
+                    
+                    for s in sizes_list:
+                        s_name = s.strip()
+                        if s_name:
+                            # 기존 데이터에 없으면 추가 (품절 상태로 등록)
+                            if not any(existing['name'] == s_name for existing in data.sizes):
+                                data.sizes.append({"name": s_name, "isSoldOut": True})
+            else:
+                print("[DEBUG] 'Size' info not found in HTML table.", file=sys.stderr)
+
+        except Exception as e:
+            print(f"[DEBUG] Info Notice Fallback Warning (Size): {e}", file=sys.stderr)
+    
+    def _scrape_color_from_info_notice(self, data):
+        """
+        품절 시, HTML의 '상품정보 제공고시' 테이블에서 색상 정보를 가져오는 예비 함수
+        """
+        try:
+            print("[DEBUG] Trying Info Notice fallback...", file=sys.stderr)
+            
+            # 1. '색상' 이라는 글자가 포함된 테이블 행(th) 찾기
+            # (XPath: 색상이라는 글자가 있는 th의 바로 다음 td)
+            target = None
+            try:
+                target = self.driver.find_element(By.XPATH, "//th[contains(text(), '색상')]/following-sibling::td")
+            except:
+                pass
+            
+            # 2. 찾았으면 텍스트 파싱
+            if target:
+                text = target.text.strip()
+                print(f"[DEBUG] Found text in notice: {text}", file=sys.stderr)
+                
+                # '참조', '상세' 같은 말이 아니면 유효한 색상으로 간주
+                if "참조" not in text and "상세" not in text:
+                    # 쉼표(,)나 슬래시(/)로 구분된 경우 분리
+                    import re
+                    colors = re.split(r'[,/]', text)
+                    
+                    for c in colors:
+                        c_name = c.strip()
+                        if c_name:
+                            # 기존 데이터에 없으면 추가 (품절 상태로)
+                            if not any(existing['name'] == c_name for existing in data.colors):
+                                data.colors.append({"name": c_name, "isSoldOut": True})
+            else:
+                print("[DEBUG] 'Color' info not found in HTML table.", file=sys.stderr)
+
+        except Exception as e:
+            # 여기서 에러가 나도 크롤링 전체가 죽지 않도록 방어
+            print(f"[DEBUG] Info Notice Fallback Warning: {e}", file=sys.stderr)
 
     def _find_title_from_html(self):
         for sel in Config.NAVER_TITLE:
