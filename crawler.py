@@ -51,6 +51,11 @@ class Config:
         "strong.price",
         "span.cwq0ZTei2a",
         ".lowest .price",
+        ".product_bridge_product__price"
+        ".origin_price"
+        "strong.price"
+        "div[class*='price'] > span"
+        "strong[class*='price']"
     ]
 
     NAVER_TITLE = [
@@ -156,6 +161,7 @@ class BaseScraper(ABC):
     def scrape(self, url: str) -> ProductData:
         self.driver.get(url)
         time.sleep(2)
+        self._prepare_page()
 
         data = self._scrape_from_json()
         if not data:
@@ -188,6 +194,18 @@ class BaseScraper(ABC):
 
         if not data.price or data.price == 0:
             data.price = self._find_price_from_html()
+
+    def _scrape_linked_colors(self, data: ProductData) -> bool:
+        return False
+    
+    def _scrape_single_color(self, data: ProductData):
+        pass
+
+    def _extract_goods_no(self) -> Optional[str]:
+        return None
+    
+    def _parse_shoe_sizes_from_dom(self) -> dict:
+        return {}
     
     def _collect_size_data(self, data: ProductData):
         print("[PY DEBUG] Collect size data start", file=sys.stderr)
@@ -308,8 +326,11 @@ class BaseScraper(ABC):
             # placeholder가 '컬러'인 input 혹은 그 부모/형제 요소
             trigger_selectors = [
                 "input[placeholder='컬러']",
+                "input[placeholder*='색상']",
                 "input[data-button-name*='컬러']",
+                "input[data-button-name*='색상']",
                 "div[data-mds='DropdownTriggerBox'] input[placeholder*='컬러']"
+                "div[data-mds='DropdownTriggerBox'] input[placeholder*='색상']"
             ]
 
             trigger = None
@@ -317,7 +338,7 @@ class BaseScraper(ABC):
                 try:
                     els = self.driver.find_elements(By.CSS_SELECTOR, sel)
                     for el in els:
-                        if el.is_displayed() and el.get_attribute('placeholder') and '컬러' in el.get_attribute('placeholder'):
+                        if el.is_displayed() and el.get_attribute('placeholder') and any(x in el.get_attribute('placeholder') for x in ['컬러', '색상', 'Color']):
                             trigger = el
                             break
                     if trigger: break
@@ -545,7 +566,9 @@ class MusinsaScraper(BaseScraper):
 
     def _check_soldout(self) -> bool:
         return "품절" in self.driver.page_source
-
+    
+    def _prepare_page(self):
+        pass
 
     def _extract_goods_no(self) -> Optional[str]:
         m = re.search(r"/products/(\d+)", self.driver.current_url)
@@ -1231,12 +1254,44 @@ class MusinsaScraper(BaseScraper):
 
 
 # ==========================================
-# 7. NAVER SCRAPER
+# 7. NAVER SCRAPER (REVISED)
 # ==========================================
 class NaverScraper(BaseScraper):
     @property
     def site_name(self):
         return "naver"
+    
+    def _prepare_page(self):
+
+        max_retries = 10  # 10번 시도
+        interval = 2      # 2초 간격 (총 20초 대기)
+        
+        for i in range(max_retries):
+            # 1. JSON 데이터가 로드되었는지 확인
+            try:
+                is_json_ready = self.driver.execute_script(
+                    "return (window.__PRELOADED_STATE__ || window.__APOLLO_STATE__) !== undefined;"
+                )
+                if is_json_ready:
+                    print(f"[PY DEBUG] JSON State detected! (Attempt {i+1})", file=sys.stderr)
+                    return
+            except:
+                pass
+
+            # 2. HTML 요소(가격/제목)가 화면에 떴는지 확인 (JSON 없는 페이지 대비)
+            try:
+                for sel in Config.NAVER_PRICE + Config.NAVER_TITLE:
+                    els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                    if els and els[0].is_displayed():
+                        print(f"[PY DEBUG] HTML Element detected! (Attempt {i+1})", file=sys.stderr)
+                        return
+            except:
+                pass
+            # 3. 아직 준비 안 됨 -> 대기
+            print(f"[PY DEBUG] Page not ready yet... waiting ({i+1}/{max_retries})", file=sys.stderr)
+            time.sleep(interval)
+
+        print("[PY DEBUG] Timeout: Failed to detect valid product data.", file=sys.stderr)
 
     def _scrape_from_json(self):
         try:
