@@ -286,9 +286,27 @@ class BaseScraper(ABC):
             )
             return
     # --------------------------------------------------
+    # 3️⃣ 일반 HTML 버튼/드롭다운 파싱
+    # --------------------------------------------------
+        #print("[PY DEBUG] Trying General HTML Options parsing...", file=sys.stderr)
+        #self._find_options_from_html(data)
+        
+        #if data.sizes:
+            print(f"[PY DEBUG] Sizes found via HTML Options: {len(data.sizes)}", file=sys.stderr)
+            return
+    # --------------------------------------------------
     # 4️⃣ 최후 fallback (아무것도 못 찾은 경우)
     # --------------------------------------------------
         print("[PY DEBUG] No size information found (final fallback)", file=sys.stderr)
+        is_global_soldout = self._check_soldout()
+        print(f"[PY DEBUG] Global Soldout: {is_global_soldout}", file=sys.stderr)
+
+        if is_global_soldout:
+            print("[PY DEBUG] Product is Globally Soldout. Trying Info Notice fallback...", file=sys.stderr)
+            # 품절 상태이므로, 여기서 가져오는 사이즈는 강제로 품절 처리됨
+            self._scrape_size_from_info_notice(data)
+        else:
+            print("[PY DEBUG] Product is Active but no sizes found. Returning empty.", file=sys.stderr)
 
                 
     def _collect_color_data(self, data: ProductData):
@@ -301,20 +319,28 @@ class BaseScraper(ABC):
             print(f"[PY DEBUG] Found colors via Dropdown: {len(data.colors)}", file=sys.stderr)
             return
 
-        # -------------------------------------------------------
-        # STEP 3 & 4: 다른 색상 연결 제품 확인 (Linked Products)
-        # -------------------------------------------------------
+        # 2. 다른 색상 연결 제품 확인 (Linked Products)
         # 드롭다운이 없으면 링크형 색상인지 확인
         if self._scrape_linked_colors(data):
             print(f"[PY DEBUG] Found colors via Links: {len(data.colors)}", file=sys.stderr)
             return
 
-        # -------------------------------------------------------
-        # STEP 5: 단일 색상 (제목에서 추출)
-        # -------------------------------------------------------
-        # 연결된 제품도 없다면 단일 색상으로 판단
-        self._scrape_single_color(data)
-        print(f"[PY DEBUG] Single color extracted: {data.colors}", file=sys.stderr)
+        # 3. 품절 여부 확인 (구매 버튼 비활성 여부 등)
+        is_global_soldout = self._check_soldout()
+        print(f"[PY DEBUG] Global Soldout Status: {is_global_soldout}", file=sys.stderr)
+
+        if is_global_soldout:
+            # 4. [품절인 경우] 상품 고시 정보에서 파싱
+            print("[PY DEBUG] Product is sold out. Trying Info Notice fallback...", file=sys.stderr)
+            self._scrape_color_from_info_notice(data)
+
+        else:
+            # 5. [품절 아님 + 위에서 못 찾음] -> '상세정보 확인 불가' 처리
+            #    (제목 기반 단일 색상 추출 시도 후 없으면 종료)
+            self._scrape_single_color(data)
+            
+            if not data.colors:
+                print("[PY DEBUG] Active product but no color options found. Returning empty.", file=sys.stderr)
 
 
     def _scrape_color_dropdown(self, data: ProductData) -> bool:
@@ -1065,7 +1091,7 @@ class MusinsaScraper(BaseScraper):
                 if clean_name:
                     valid_sizes.append({
                         "name": clean_name,
-                        "isSoldOut": True 
+                        "isSoldOut": True
                     })
 
             if valid_sizes:
@@ -1110,16 +1136,23 @@ class MusinsaScraper(BaseScraper):
 
             if not raw_text or "참조" in raw_text or "이미지" in raw_text:
                 return False
-
-            tokens = raw_text.split(",")
+            
+            import re
+            tokens = re.split(r'[,/\n]+', raw_text)
 
             for t in tokens:
                 t = t.strip()
                 if not t:
                     continue
+                
+
+                clean_name = re.sub(r'^[\d]+[\.\)\s]*', '', t)
+
+                if not clean_name: # 번호 지웠더니 빈 문자열이면 스킵
+                    continue
 
                 collected_colors.append({
-                    "name": t,
+                    "name": clean_name,
                     "isSoldOut": False
                 })
 
